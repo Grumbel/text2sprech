@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDebug>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
@@ -22,14 +23,18 @@
 #include "speech/PlaybackController.h"
 
 namespace {
-// Matches the default in piper_server/server.py (--socket flag / env var).
+// Must match piper_server/server.py's default exactly (--socket flag /
+// READER_PIPER_SOCKET env var) -- previously this used $XDG_RUNTIME_DIR,
+// which is set to /run/user/<uid> on most systemd desktops and so almost
+// never matched the server's /tmp default, leaving the client trying to
+// connect to a socket the server was never listening on.
 QString defaultSocketPath()
 {
-    QString runtimeDir = QString::fromLocal8Bit(qgetenv("XDG_RUNTIME_DIR"));
-    if (runtimeDir.isEmpty()) {
-        runtimeDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QString fromEnv = QString::fromLocal8Bit(qgetenv("READER_PIPER_SOCKET"));
+    if (!fromEnv.isEmpty()) {
+        return fromEnv;
     }
-    return runtimeDir + "/reader-piper.sock";
+    return QStringLiteral("/tmp/reader-piper.sock");
 }
 } // namespace
 
@@ -46,6 +51,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onVoiceListReady);
     connect(m_piperClient, &PiperClient::connectionError, this, [this](const QString &msg) {
+        qWarning().noquote() << "Piper connection error:" << msg;
         statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 5000);
     });
     connect(m_playback, &PlaybackController::sentenceStarted, this, &MainWindow::onSentenceStarted);
@@ -56,7 +62,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     connect(m_documentView, &DocumentView::positionClicked, this, &MainWindow::onDocumentClicked);
 
-    m_piperClient->connectToServer(defaultSocketPath());
+    const QString socketPath = defaultSocketPath();
+    qInfo().noquote() << "Connecting to piper-server at" << socketPath;
+    m_piperClient->connectToServer(socketPath);
 
     resize(900, 700);
     setWindowTitle(tr("Reader"));
@@ -250,5 +258,6 @@ void MainWindow::onSpeedChanged(double speed)
 
 void MainWindow::onPlaybackError(const QString &message)
 {
+    qWarning().noquote() << message;
     statusBar()->showMessage(message, 5000);
 }

@@ -20,7 +20,7 @@ const QSet<QString> &abbreviations()
 const QRegularExpression &boundaryRegex()
 {
     static const QRegularExpression kRe(
-        QStringLiteral(R"([.!?]+["'\u201d\u2019)\]]*\s+(?=[A-Z"'\u201c\u2018(\[]|$))"));
+        QStringLiteral("[.!?]+[\"'\\x{201d}\\x{2019})\\]]*\\s+(?=[A-Z\"'\\x{201c}\\x{2018}(\\[]|$)"));
     return kRe;
 }
 
