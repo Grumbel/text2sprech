@@ -2,6 +2,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCloseEvent>
 #include <QClipboard>
 #include <QComboBox>
 #include <QDebug>
@@ -13,6 +14,7 @@
 #include <QMimeData>
 #include <QStatusBar>
 #include <QTextStream>
+#include <QTimer>
 #include <QToolBar>
 #include <QStandardPaths>
 #include <algorithm>
@@ -20,23 +22,8 @@
 #include "DocumentView.h"
 #include "document/SentenceSplitter.h"
 #include "speech/PiperClient.h"
+#include "speech/PiperServerManager.h"
 #include "speech/PlaybackController.h"
-
-namespace {
-// Must match piper_server/server.py's default exactly (--socket flag /
-// READER_PIPER_SOCKET env var) -- previously this used $XDG_RUNTIME_DIR,
-// which is set to /run/user/<uid> on most systemd desktops and so almost
-// never matched the server's /tmp default, leaving the client trying to
-// connect to a socket the server was never listening on.
-QString defaultSocketPath()
-{
-    QString fromEnv = QString::fromLocal8Bit(qgetenv("READER_PIPER_SOCKET"));
-    if (!fromEnv.isEmpty()) {
-        return fromEnv;
-    }
-    return QStringLiteral("/tmp/reader-piper.sock");
-}
-} // namespace
 
 MainWindow::MainWindow(const Options &options, QWidget *parent)
     : QMainWindow(parent), m_options(options)
@@ -52,6 +39,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
 
     connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onVoiceListReady);
     connect(m_piperClient, &PiperClient::ready, this, [this] {
+        m_connectAttemptsLeft = 0; // successfully connected; stop treating further errors as retryable
         // Deferred (rather than opened immediately in main()) because the
         // socket connect is asynchronous -- opening it before the event
         // loop has even started would mean autoplay tries to speak before
@@ -62,6 +50,15 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         }
     });
     connect(m_piperClient, &PiperClient::connectionError, this, [this](const QString &msg) {
+        // A freshly-spawned piper-server needs a moment (Python startup,
+        // potentially loading voice models) before its socket exists, so
+        // the first several connect attempts failing is expected, not an
+        // error -- retry quietly rather than alarming the user immediately.
+        if (m_connectAttemptsLeft > 0) {
+            --m_connectAttemptsLeft;
+            QTimer::singleShot(200, this, [this] { m_piperClient->connectToServer(m_targetSocketPath); });
+            return;
+        }
         qWarning().noquote() << "Piper connection error:" << msg;
         statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 5000);
     });
@@ -73,12 +70,55 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     });
     connect(m_documentView, &DocumentView::positionClicked, this, &MainWindow::onDocumentClicked);
 
-    const QString socketPath = defaultSocketPath();
-    qInfo().noquote() << "Connecting to piper-server at" << socketPath;
-    m_piperClient->connectToServer(socketPath);
+    QString socketPath;
+    if (!m_options.piperSocket.isEmpty()) {
+        // User asked to attach to a server they're managing themselves --
+        // we must never spawn or kill a process in this case.
+        socketPath = m_options.piperSocket;
+        qInfo().noquote() << "Using externally-managed piper-server at" << socketPath;
+    } else {
+        m_piperServerManager = new PiperServerManager(this);
+        connect(m_piperServerManager, &PiperServerManager::serverOutput, this, [](const QString &text) {
+            qDebug().noquote() << "[piper-server]" << text.trimmed();
+        });
+        connect(m_piperServerManager, &PiperServerManager::failedToStart, this, [this](const QString &reason) {
+            qWarning().noquote() << reason;
+            statusBar()->showMessage(reason, 8000);
+        });
+        socketPath = m_piperServerManager->startWithUniqueSocket();
+        if (!socketPath.isEmpty()) {
+            qInfo().noquote() << "Spawned piper-server on" << socketPath;
+        }
+    }
+
+    if (!socketPath.isEmpty()) {
+        connectToPiperServer(socketPath);
+    }
 
     resize(900, 700);
     setWindowTitle(tr("Reader"));
+}
+
+void MainWindow::connectToPiperServer(const QString &socketPath)
+{
+    m_targetSocketPath = socketPath;
+    // ~6s of retries at 200ms apart -- generous enough to cover typical
+    // Python startup and voice-model loading without hanging indefinitely
+    // if something is actually wrong.
+    m_connectAttemptsLeft = 30;
+    m_piperClient->connectToServer(socketPath);
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    m_playback->stop();
+    if (m_piperServerManager) {
+        // Only torn down when we spawned it ourselves; an externally
+        // provided --piper-socket server is left running for whoever
+        // started it.
+        m_piperServerManager->stop();
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::setUpUi()

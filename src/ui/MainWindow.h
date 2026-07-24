@@ -7,10 +7,12 @@
 
 class DocumentView;
 class PiperClient;
+class PiperServerManager;
 class PlaybackController;
 class QComboBox;
 class QDoubleSpinBox;
 class QAction;
+class QCloseEvent;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -21,6 +23,10 @@ public:
         double speed = 1.0;    // 0.5 - 3.0, matches m_speedSpin's range
         bool autoplay = false; // start playback as soon as a document is loaded
         QString initialFile;   // empty = don't open anything on startup
+        // If set, connect to an already-running piper-server at this socket
+        // instead of spawning our own -- we never start or stop a server we
+        // didn't launch ourselves.
+        QString piperSocket;
     };
 
     explicit MainWindow(const Options &options, QWidget *parent = nullptr);
@@ -28,6 +34,9 @@ public:
     // Loads a file given directly (e.g. from a CLI positional argument)
     // rather than through the Open… file dialog.
     void openFilePath(const QString &path);
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void openFile();
@@ -45,11 +54,15 @@ private:
     void loadDocumentText(const QString &plainOrHtml, bool isHtml);
     void reindexSentences();
     int sentenceIndexForOffset(int offset) const;
+    void connectToPiperServer(const QString &socketPath);
 
     Options m_options;
 
     DocumentView *m_documentView;
     PiperClient *m_piperClient;
+    // Null when m_options.piperSocket was given -- we're attaching to
+    // someone else's server and must not manage its lifecycle.
+    PiperServerManager *m_piperServerManager = nullptr;
     PlaybackController *m_playback;
 
     QComboBox *m_voiceCombo;
@@ -58,4 +71,10 @@ private:
 
     QVector<Sentence> m_sentences;
     bool m_initialFileLoaded = false;
+
+    // Startup connection retry: the spawned server needs a moment to import
+    // Python/load models before its socket exists, so the first few connect
+    // attempts are expected to fail.
+    QString m_targetSocketPath;
+    int m_connectAttemptsLeft = 0;
 };

@@ -20,11 +20,21 @@ add_executable(reader
     src/document/Sentence.h
     src/speech/PiperClient.cpp
     src/speech/PiperClient.h
+    src/speech/PiperServerManager.cpp
+    src/speech/PiperServerManager.h
     src/speech/PlaybackController.cpp
     src/speech/PlaybackController.h
 )
 
 target_include_directories(reader PRIVATE src)
+
+# Dev-tree convenience: if no `piper-server` executable is on PATH (i.e. not
+# using the flake-packaged setup), PiperServerManager falls back to running
+# this script directly with python3. Not meaningful once installed/packaged
+# elsewhere -- that's what the flake's qtWrapperArgs PATH injection is for.
+target_compile_definitions(reader PRIVATE
+    PIPER_SERVER_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/piper_server/server.py"
+)
 
 target_link_libraries(reader PRIVATE
     Qt6::Core

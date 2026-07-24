@@ -30,9 +30,17 @@ int main(int argc, char *argv[])
         QStringList() << "autoplay",
         "Start playback automatically as soon as a document is loaded "
         "(via Open…, Paste, or the optional [file] argument below).");
+    QCommandLineOption piperSocketOption(
+        QStringList() << "piper-socket",
+        "Connect to an already-running piper-server at this socket path "
+        "instead of starting one automatically. The app will not manage "
+        "the lifecycle of a server given this way (it won't be stopped "
+        "when the app closes).",
+        "path");
     parser.addOption(voiceOption);
     parser.addOption(speedOption);
     parser.addOption(autoplayOption);
+    parser.addOption(piperSocketOption);
     parser.addPositionalArgument("file", "Optional text/HTML file to open on startup.", "[file]");
 
     parser.process(app);
@@ -51,6 +59,7 @@ int main(int argc, char *argv[])
     }
     options.speed = speed;
     options.autoplay = parser.isSet(autoplayOption);
+    options.piperSocket = parser.value(piperSocketOption);
 
     const QStringList positional = parser.positionalArguments();
     if (!positional.isEmpty()) {

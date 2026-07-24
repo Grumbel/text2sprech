@@ -59,6 +59,14 @@
           nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.qt6.wrapQtAppsHook ];
           buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtmultimedia ];
           cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
+          # qtWrapperArgs is read by wrapQtAppsHook and appended to the
+          # generated wrapper script -- using this (rather than defining our
+          # own postFixup, which would clobber the hook's) is how nixpkgs
+          # expects extra environment tweaks to be added to a Qt app.
+          # This is what lets PiperServerManager's
+          # QStandardPaths::findExecutable("piper-server") succeed at
+          # runtime for an installed/packaged `reader`.
+          qtWrapperArgs = [ "--prefix" "PATH" ":" "${piper-server}/bin" ];
         };
       in
       {
@@ -82,10 +90,13 @@
             pkgs.qt6.qtmultimedia
             pkgs.qt6.qttools # for Qt Creator / IDE integration, debugging tools
             pythonEnv
+            piper-server
           ];
           shellHook = ''
-            echo "reader dev shell: cmake -B build -G Ninja && cmake --build build"
-            echo "piper-server:     python3 piper_server/server.py --verbose"
+            echo "reader dev shell: cmake -B build -G Ninja && cmake --build build && ./build/reader"
+            echo "(piper-server is started automatically by reader now -- see"
+            echo " src/speech/PiperServerManager.cpp -- but you can still run"
+            echo " it standalone: python3 piper_server/server.py --verbose)"
             echo "(see PROTOCOL.md; note the piper-python-package gap noted in flake.nix)"
           '';
         };
