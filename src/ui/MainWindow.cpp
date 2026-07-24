@@ -38,7 +38,8 @@ QString defaultSocketPath()
 }
 } // namespace
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+MainWindow::MainWindow(const Options &options, QWidget *parent)
+    : QMainWindow(parent), m_options(options)
 {
     m_documentView = new DocumentView(this);
     setCentralWidget(m_documentView);
@@ -50,6 +51,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setUpShortcuts();
 
     connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onVoiceListReady);
+    connect(m_piperClient, &PiperClient::ready, this, [this] {
+        // Deferred (rather than opened immediately in main()) because the
+        // socket connect is asynchronous -- opening it before the event
+        // loop has even started would mean autoplay tries to speak before
+        // we're actually connected. This connection only ever acts once.
+        if (!m_initialFileLoaded && !m_options.initialFile.isEmpty()) {
+            m_initialFileLoaded = true;
+            openFilePath(m_options.initialFile);
+        }
+    });
     connect(m_piperClient, &PiperClient::connectionError, this, [this](const QString &msg) {
         qWarning().noquote() << "Piper connection error:" << msg;
         statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 5000);
@@ -109,7 +120,9 @@ void MainWindow::setUpUi()
     m_speedSpin = new QDoubleSpinBox(this);
     m_speedSpin->setRange(0.5, 3.0);
     m_speedSpin->setSingleStep(0.25);
-    m_speedSpin->setValue(1.0);
+    m_speedSpin->blockSignals(true);
+    m_speedSpin->setValue(m_options.speed);
+    m_speedSpin->blockSignals(false);
     m_speedSpin->setPrefix(tr("Speed: "));
     m_speedSpin->setSuffix(tr("x"));
     connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
@@ -153,6 +166,11 @@ void MainWindow::openFile()
     if (path.isEmpty()) {
         return;
     }
+    openFilePath(path);
+}
+
+void MainWindow::openFilePath(const QString &path)
+{
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QMessageBox::warning(this, tr("Open failed"), file.errorString());
@@ -190,7 +208,12 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
         m_documentView->loadPlainText(content);
     }
     reindexSentences();
-    m_playPauseAction->setText(tr("Play"));
+    if (m_options.autoplay && !m_sentences.isEmpty()) {
+        m_playback->play();
+        m_playPauseAction->setText(tr("Pause"));
+    } else {
+        m_playPauseAction->setText(tr("Play"));
+    }
     statusBar()->showMessage(tr("Loaded %1 sentences").arg(m_sentences.size()), 3000);
 }
 
@@ -240,14 +263,33 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
 
 void MainWindow::onVoiceListReady(const QStringList &voices, const QString &current)
 {
+    QString selected = current;
+    if (!m_options.voice.isEmpty()) {
+        if (voices.contains(m_options.voice)) {
+            selected = m_options.voice;
+        } else {
+            qWarning().noquote() << "Requested --voice" << m_options.voice
+                                  << "not available on server; using default" << current;
+        }
+    }
+
     m_voiceCombo->blockSignals(true);
     m_voiceCombo->clear();
     m_voiceCombo->addItems(voices);
-    int idx = voices.indexOf(current);
+    int idx = voices.indexOf(selected);
     if (idx >= 0) {
         m_voiceCombo->setCurrentIndex(idx);
     }
     m_voiceCombo->blockSignals(false);
+
+    if (selected != current) {
+        m_piperClient->setVoice(selected);
+    }
+    // Speed was set on the spin box during setUpUi() before we were
+    // connected, so the actual synth-side speed was never sent -- send it
+    // now that the connection is live.
+    m_playback->setSpeed(m_options.speed);
+
     statusBar()->showMessage(tr("Connected to piper-server (%1 voices)").arg(voices.size()), 3000);
 }
 

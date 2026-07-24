@@ -33,6 +33,24 @@ cmake --build build
 ./build/reader
 ```
 
+### Command-line options
+
+```
+./build/reader [options] [file]
+
+--voice <name>   Select this voice on startup (must match one the server
+                 reports; falls back to the server default with a stderr
+                 warning if not found).
+--speed <factor> Initial playback speed, 0.5-3.0 (default 1.0).
+--autoplay       Start playback automatically as soon as a document is
+                 loaded (via Open…, Paste, or the [file] argument).
+[file]           Optional text/HTML file to open on startup. Deferred
+                 until the piper-server connection is actually up, so
+                 --autoplay doesn't race the async socket connect.
+```
+
+Example: `./build/reader --voice en_US-lessac-medium --speed 1.25 --autoplay book.txt`
+
 Or via the flake, once you can reach the network to resolve nixpkgs:
 
 ```bash
