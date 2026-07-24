@@ -32,7 +32,7 @@
         #      `python3Packages.buildPythonPackage` derivation here. Left
         #      as a TODO rather than a fabricated hash that would silently
         #      fail your first `nix build`.
-        pythonEnv = pkgs.python3.withPackages (ps: [ ]);
+        pythonEnv = pkgs.python3.withPackages (ps: [ pkgs.piper ]);
         # ^ intentionally empty: piper_server only uses the stdlib
         #   (asyncio, wave, json, struct). Add ps.<pkg> here once you
         #   vendor a real piper Python package (option 2 above).
