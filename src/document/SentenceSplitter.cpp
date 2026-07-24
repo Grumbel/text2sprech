@@ -93,7 +93,7 @@ QVector<Sentence> SentenceSplitter::split(const QString &text, int startId)
         }
         int leadingWs = chunk.indexOf(trimmed.left(1));
         int offset = chunkStart + (leadingWs < 0 ? 0 : leadingWs);
-        result.append(Sentence{nextId++, offset, offset + trimmed.size(), trimmed});
+        result.append(Sentence{nextId++, offset, offset + static_cast<int>(trimmed.size()), trimmed});
     };
 
     for (int end : boundaryEnds) {

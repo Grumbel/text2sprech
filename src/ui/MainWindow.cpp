@@ -201,7 +201,8 @@ int MainWindow::sentenceIndexForOffset(int offset) const
     auto it = std::upper_bound(
         m_sentences.begin(), m_sentences.end(), offset,
         [](int off, const Sentence &s) { return off < s.end; });
-    return it == m_sentences.end() ? m_sentences.size() - 1 : static_cast<int>(it - m_sentences.begin());
+    return it == m_sentences.end() ? static_cast<int>(m_sentences.size()) - 1
+                                    : static_cast<int>(it - m_sentences.begin());
 }
 
 void MainWindow::togglePlayPause()

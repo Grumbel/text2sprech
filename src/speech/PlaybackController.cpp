@@ -98,7 +98,7 @@ void PlaybackController::requestLookahead()
     if (m_currentIndex < 0) {
         return;
     }
-    int end = std::min(m_currentIndex + m_lookahead, m_sentences.size() - 1);
+    int end = std::min(m_currentIndex + m_lookahead, static_cast<int>(m_sentences.size()) - 1);
     for (int i = m_currentIndex; i <= end; ++i) {
         const Sentence &s = m_sentences[i];
         if (!m_audioCache.contains(s.id)) {
