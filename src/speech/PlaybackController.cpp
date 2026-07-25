@@ -132,6 +132,7 @@ void PlaybackController::playCurrentIfReady()
     auto it = m_audioCache.find(s.id);
     if (it == m_audioCache.end()) {
         m_waitingForAudio = true; // onAudioReady will resume playback when it arrives
+        emit preparingAudio(s.id);
         return;
     }
     m_waitingForAudio = false;

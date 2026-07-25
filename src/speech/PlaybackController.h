@@ -48,6 +48,10 @@ public:
 
 signals:
     void sentenceStarted(int sentenceId, int start, int end);
+    // Emitted when playback wants to start a sentence but its audio hasn't
+    // arrived yet -- lets the UI distinguish "buffering" from "playing"
+    // instead of looking stuck with no feedback during the gap.
+    void preparingAudio(int sentenceId);
     void playbackFinished();
     void errorOccurred(QString message);
 

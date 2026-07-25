@@ -2,6 +2,7 @@
 
 #include <QMouseEvent>
 #include <QPalette>
+#include <QRect>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -118,8 +119,15 @@ void DocumentView::highlightRange(int start, int end)
     }
 
     QTextEdit::ExtraSelection selection;
-    selection.format.setBackground(palette().highlight());
-    selection.format.setForeground(palette().highlightedText());
+    // Fixed, high-contrast colors rather than palette().highlight()/
+    // highlightedText() -- the default blue-background/white-text
+    // combination was hard to read (and, layered over the yellow tint
+    // stripes, lower-contrast than it looks in isolation). A saturated
+    // amber with near-black text stays clearly readable regardless of the
+    // underlying tint or the app's light/dark theme, and reads as "this is
+    // the active one" against the paler yellow tints.
+    selection.format.setBackground(QColor(255, 152, 0));
+    selection.format.setForeground(QColor(20, 20, 20));
     QTextCursor cursor(document());
     cursor.setPosition(start);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
@@ -129,9 +137,21 @@ void DocumentView::highlightRange(int start, int end)
     m_hasCurrentHighlight = true;
     refreshExtraSelections();
 
-    // Auto-scroll so the highlighted sentence stays in view.
+    // Center the highlighted sentence in the viewport rather than just
+    // nudging it into view at an edge (what ensureCursorVisible() alone
+    // does) -- keeps the active sentence in a stable, comfortable reading
+    // position as playback scrolls through a long document.
     setTextCursor(cursor);
-    ensureCursorVisible();
+    centerCursor(cursor);
+}
+
+void DocumentView::centerCursor(const QTextCursor &cursor)
+{
+    const QRect cursorViewportRect = cursorRect(cursor);
+    const int viewportMidY = viewport()->height() / 2;
+    const int delta = cursorViewportRect.center().y() - viewportMidY;
+    QScrollBar *vbar = verticalScrollBar();
+    vbar->setValue(vbar->value() + delta);
 }
 
 void DocumentView::mousePressEvent(QMouseEvent *event)

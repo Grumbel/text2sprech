@@ -12,8 +12,10 @@
 #include <QFileInfo>
 #include <QIcon>
 #include <QKeySequence>
+#include <QLabel>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QRegularExpression>
 #include <QStatusBar>
 #include <QTextStream>
 #include <QTimer>
@@ -26,6 +28,20 @@
 #include "speech/PiperClient.h"
 #include "speech/PiperServerManager.h"
 #include "speech/PlaybackController.h"
+
+namespace {
+// Rough word count -- good enough for a length/position estimate, not
+// meant to be precise (matches the "can be rough" spirit of the estimate).
+int countWords(const QString &text)
+{
+    static const QRegularExpression whitespace(QStringLiteral("\\s+"));
+    return text.split(whitespace, Qt::SkipEmptyParts).size();
+}
+
+// Typical spoken-word rate at 1.0x speed, used only to turn a word count
+// into a rough minutes estimate -- Piper's actual rate varies by voice.
+constexpr double kWordsPerMinuteBase = 150.0;
+} // namespace
 
 MainWindow::MainWindow(const Options &options, QWidget *parent)
     : QMainWindow(parent), m_options(options)
@@ -43,6 +59,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onVoiceListReady);
     connect(m_piperClient, &PiperClient::ready, this, [this] {
         m_connectAttemptsLeft = 0; // successfully connected; stop treating further errors as retryable
+        setActivity(tr("Ready"));
         // Deferred (rather than opened immediately in main()) because the
         // socket connect is asynchronous -- opening it before the event
         // loop has even started would mean autoplay tries to speak before
@@ -60,12 +77,15 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
             return;
         }
         qWarning().noquote() << "Piper connection error:" << msg;
+        setActivity(tr("Piper connection failed"));
         statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 5000);
     });
     connect(m_playback, &PlaybackController::sentenceStarted, this, &MainWindow::onSentenceStarted);
+    connect(m_playback, &PlaybackController::preparingAudio, this, &MainWindow::onPreparingAudio);
     connect(m_playback, &PlaybackController::errorOccurred, this, &MainWindow::onPlaybackError);
     connect(m_playback, &PlaybackController::playbackFinished, this, [this] {
         m_playPauseAction->setText(tr("Play"));
+        setActivity(tr("Finished"));
         statusBar()->showMessage(tr("Finished"), 3000);
     });
     connect(m_documentView, &DocumentView::positionClicked, this, &MainWindow::onDocumentClicked);
@@ -75,14 +95,17 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         // User asked to attach to a server they're managing themselves --
         // we must never spawn or kill a process in this case.
         socketPath = m_options.piperSocket;
+        setActivity(tr("Connecting to piper-server…"));
         qInfo().noquote() << "Using externally-managed piper-server at" << socketPath;
     } else {
+        setActivity(tr("Starting piper-server…"));
         m_piperServerManager = new PiperServerManager(this);
         connect(m_piperServerManager, &PiperServerManager::serverOutput, this, [](const QString &text) {
             qDebug().noquote() << "[piper-server]" << text.trimmed();
         });
         connect(m_piperServerManager, &PiperServerManager::failedToStart, this, [this](const QString &reason) {
             qWarning().noquote() << reason;
+            setActivity(tr("Piper server unavailable"));
             statusBar()->showMessage(reason, 8000);
         });
         socketPath = m_piperServerManager->startWithUniqueSocket();
@@ -94,6 +117,8 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     if (!socketPath.isEmpty()) {
         connectToPiperServer(socketPath);
     }
+
+    refreshInfoLabel(); // initializes to "No document loaded"
 
     resize(900, 700);
     setWindowIcon(QIcon(QStringLiteral(":/icons/text2sprech.png")));
@@ -156,6 +181,7 @@ void MainWindow::setUpUi()
         m_playback->stop();
         m_documentView->clearHighlight();
         m_playPauseAction->setText(tr("Play"));
+        setActivity(tr("Stopped"));
     });
 
     toolbar->addSeparator();
@@ -192,7 +218,17 @@ void MainWindow::setUpUi()
     increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
 
-    statusBar()->showMessage(tr("Connecting to piper-server…"));
+    // Left/normal area: current activity ("Preparing audio…", "Playing",
+    // etc.) -- temporarily hidden by statusBar()->showMessage() popups and
+    // revealed again once those expire, which is standard QStatusBar
+    // behavior and exactly what we want here (a transient notification
+    // briefly covering the steady-state indicator).
+    m_activityLabel = new QLabel(this);
+    statusBar()->addWidget(m_activityLabel);
+
+    // Right/permanent area: length + position estimate, always visible.
+    m_infoLabel = new QLabel(this);
+    statusBar()->addPermanentWidget(m_infoLabel);
 }
 
 void MainWindow::setUpShortcuts()
@@ -334,6 +370,17 @@ void MainWindow::reindexSentences()
     m_sentences = SentenceSplitter::split(plainText, /*startId=*/0);
     m_playback->loadSentences(m_sentences);
     m_documentView->setSentenceBoundaries(m_sentences);
+
+    m_cumulativeWordsBeforeSentence.clear();
+    m_cumulativeWordsBeforeSentence.reserve(m_sentences.size());
+    int running = 0;
+    for (const auto &s : m_sentences) {
+        m_cumulativeWordsBeforeSentence.append(running);
+        running += countWords(s.text);
+    }
+    m_totalWords = running;
+    m_currentSentenceIndex = -1; // no position yet in the freshly (re)loaded document
+    refreshInfoLabel();
 }
 
 int MainWindow::sentenceIndexForOffset(int offset) const
@@ -350,15 +397,24 @@ void MainWindow::togglePlayPause()
     if (m_playback->isPlaying()) {
         m_playback->pause();
         m_playPauseAction->setText(tr("Play"));
+        setActivity(tr("Paused"));
     } else {
         m_playback->play();
         m_playPauseAction->setText(tr("Pause"));
     }
 }
 
-void MainWindow::onSentenceStarted(int /*sentenceId*/, int start, int end)
+void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
 {
     m_documentView->highlightRange(start, end);
+    m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
+    setActivity(tr("Playing"));
+    refreshInfoLabel();
+}
+
+void MainWindow::onPreparingAudio(int /*sentenceId*/)
+{
+    setActivity(tr("Preparing audio…"));
 }
 
 void MainWindow::onDocumentClicked(int plainTextOffset)
@@ -373,6 +429,8 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
     // (that only fires once audio actually starts), so without this the
     // click would appear to do nothing until Play is pressed.
     m_documentView->highlightRange(sentence.start, sentence.end);
+    m_currentSentenceIndex = index;
+    refreshInfoLabel();
     m_playback->seekToSentence(index);
 }
 
@@ -411,10 +469,36 @@ void MainWindow::onVoiceListReady(const QStringList &voices, const QString &curr
 void MainWindow::onSpeedChanged(double speed)
 {
     m_playback->setSpeed(speed);
+    refreshInfoLabel(); // estimated minutes scales with speed
 }
 
 void MainWindow::onPlaybackError(const QString &message)
 {
     qWarning().noquote() << message;
     statusBar()->showMessage(message, 5000);
+}
+
+void MainWindow::setActivity(const QString &text)
+{
+    m_activityLabel->setText(text);
+}
+
+void MainWindow::refreshInfoLabel()
+{
+    if (m_sentences.isEmpty()) {
+        m_infoLabel->setText(tr("No document loaded"));
+        return;
+    }
+
+    const double speed = qMax(0.1, m_speedSpin->value());
+    const int estimatedMinutes = static_cast<int>((m_totalWords / (kWordsPerMinuteBase * speed)) + 0.5);
+    QString text = tr("~%1 words, ~%2 min").arg(m_totalWords).arg(qMax(0, estimatedMinutes));
+
+    if (m_currentSentenceIndex >= 0 && m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
+        const int wordsSoFar = m_cumulativeWordsBeforeSentence[m_currentSentenceIndex];
+        const int percent = m_totalWords > 0 ? static_cast<int>(100.0 * wordsSoFar / m_totalWords) : 0;
+        text += tr("  |  word %1 (%2%)").arg(wordsSoFar).arg(percent);
+    }
+
+    m_infoLabel->setText(text);
 }

@@ -14,6 +14,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QAction;
 class QCloseEvent;
+class QLabel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -51,6 +52,7 @@ private slots:
     void openFile();
     void togglePlayPause();
     void onSentenceStarted(int sentenceId, int start, int end);
+    void onPreparingAudio(int sentenceId);
     void onDocumentClicked(int plainTextOffset);
     void onVoiceListReady(const QStringList &voices, const QString &current);
     void onSpeedChanged(double speed);
@@ -68,6 +70,15 @@ private:
     // selection/clipboard, or an initial file), once the piper-server
     // connection is actually up. Only ever acts once.
     void loadStartupContentIfNeeded();
+    // Persistent "what's happening right now" indicator (left side of the
+    // status bar) -- distinct from the transient statusBar()->showMessage()
+    // notifications, which briefly cover it and then reveal it again.
+    void setActivity(const QString &text);
+    // Right-side permanent status bar label: rough total length (words,
+    // estimated minutes at the current speed) and current position (words
+    // read so far, percent). Recomputed whenever the document, current
+    // sentence, or speed changes.
+    void refreshInfoLabel();
 
     Options m_options;
 
@@ -81,9 +92,19 @@ private:
     QComboBox *m_voiceCombo;
     QDoubleSpinBox *m_speedSpin;
     QAction *m_playPauseAction;
+    QLabel *m_activityLabel;  // left/normal status bar area: current activity
+    QLabel *m_infoLabel;      // right/permanent status bar area: length + position estimate
 
     QVector<Sentence> m_sentences;
     bool m_startupContentLoaded = false;
+
+    // Rough word-count bookkeeping for the info label. Words, not
+    // characters, since "estimated minutes" and "percent through" are both
+    // more meaningful in word terms for a TTS reader. Recomputed whenever
+    // m_sentences changes (reindexSentences()).
+    int m_totalWords = 0;
+    QVector<int> m_cumulativeWordsBeforeSentence; // parallel to m_sentences
+    int m_currentSentenceIndex = -1; // -1 = no position yet (nothing played/clicked)
 
     // Startup connection retry: the spawned server needs a moment to import
     // Python/load models before its socket exists, so the first few connect

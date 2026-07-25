@@ -188,6 +188,24 @@ text2sprech/
 - **HTML rendering relies on Qt's built-in subset** (`QTextDocument::setHtml`),
   which covers headings/paragraphs/emphasis/line breaks as scoped, but is
   not a full browser engine.
+- **Active-sentence highlight is now a fixed amber background with
+  near-black text**, not the default `palette().highlight()`/
+  `highlightedText()` (blue/white), which was hard to read -- especially
+  layered over the yellow tint stripes underneath.
+- **Auto-scroll centers the active sentence** in the viewport
+  (`DocumentView::centerCursor()`, computed from `cursorRect()` and the
+  vertical scrollbar) rather than just nudging it into view at an edge,
+  which is all the default `ensureCursorVisible()` does.
+- **Status bar now has two permanent regions**: the left/normal area shows
+  the current activity ("Starting piper-server…", "Preparing audio…",
+  "Playing", "Paused", "Stopped", etc. -- see `MainWindow::setActivity()`),
+  temporarily covered by transient notifications (errors, "Loaded N
+  sentences") the same way `QStatusBar::showMessage()` always covers normal
+  widgets. The right/permanent area (`MainWindow::refreshInfoLabel()`)
+  shows a rough total length ("~1,234 words, ~8 min", scaled by the current
+  speed) and current position ("word 456 (37%)"), based on a simple
+  whitespace word count and a fixed 150 words/minute baseline -- both
+  explicitly approximate, not meant to be precise.
 - **Renamed from "reader" to "text2sprech"** (binary, window title,
   project/organization name used for the config file and `QSettings` path,
   Nix package/app names, socket-name prefix). Also added a proper Linux

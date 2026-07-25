@@ -68,6 +68,7 @@ protected:
 private:
     void refreshExtraSelections();
     void reapplyZoom();
+    void centerCursor(const QTextCursor &cursor);
 
     QList<QTextEdit::ExtraSelection> m_tintSelections;
     QTextEdit::ExtraSelection m_currentHighlight;
