@@ -152,6 +152,17 @@ QVector<Sentence> SentenceSplitter::split(const QString &text, int startId, int 
         if (trimmed.isEmpty()) {
             return;
         }
+        bool hasSpeakableContent = std::any_of(trimmed.begin(), trimmed.end(),
+                                                [](QChar ch) { return ch.isLetterOrNumber(); });
+        if (!hasSpeakableContent) {
+            // No letters or digits at all -- e.g. stray punctuation or a
+            // leftover HTML entity/symbol from imperfect HTML-to-text
+            // extraction ("---", "»"). Piper's own text normalization
+            // reduces these to zero phonemes and then crashes trying to
+            // write a WAV header for zero frames, so skip sending them at
+            // all rather than relying on the server to degrade gracefully.
+            return;
+        }
         int leadingWs = chunk.indexOf(trimmed.left(1));
         int offset = chunkStart + (leadingWs < 0 ? 0 : leadingWs);
         result.append(Sentence{nextId++, offset, offset + static_cast<int>(trimmed.size()), trimmed});

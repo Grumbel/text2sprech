@@ -95,6 +95,15 @@ def split_sentences(text: str, max_len: int = DEFAULT_MAX_LEN) -> list[Sentence]
             stripped = chunk.strip()
             if not stripped:
                 continue
+            if not any(ch.isalnum() for ch in stripped):
+                # No letters or digits at all -- e.g. stray punctuation or
+                # a leftover HTML entity/symbol from imperfect HTML-to-text
+                # extraction ("---", "»", "&nbsp;" if it wasn't decoded).
+                # Piper's own text normalization reduces these to zero
+                # phonemes and then crashes trying to write a WAV header
+                # for zero frames, so skip sending them at all rather than
+                # relying on the server to degrade gracefully.
+                continue
             offset = sub_start + chunk.index(stripped[0])
             sentences.append(Sentence(text=stripped, start=offset, end=offset + len(stripped)))
 

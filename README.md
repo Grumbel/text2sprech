@@ -14,7 +14,8 @@ access**, so here's the honest breakdown:
 | Component | Status |
 |---|---|
 | `piper_server/` (Python) | **Tested end-to-end** — server + protocol framing + a real socket client, see below. Uses a `SilentTestBackend` (silent WAVs) because no Piper install/models are available in this sandbox; falls back automatically to a real Piper CLI or Python backend if either is present on your machine. |
-| `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials, newline-forced breaks, blank-line paragraph breaks, and max-length subdivision (both a whitespace-breakable long run and a hard, unbreakable one). |
+| `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials, newline-forced breaks, blank-line paragraph breaks, max-length subdivision (both a whitespace-breakable long run and a hard, unbreakable one), and dropping punctuation/symbol-only junk segments. |
+| `synth.py`'s `PiperCliBackend` fallback behavior | **Tested** against a fake `piper` binary reproducing the real crash: confirmed unspeakable text is pre-filtered without invoking the CLI at all, confirmed the CLI-crash-despite-passing-the-filter case degrades to silence with a logged warning rather than raising, and confirmed a genuinely different failure (missing voice model) still raises normally. |
 | C++ (`src/`, `tests/`) | **Written but not compiled** — no Qt6/CMake toolchain available here. `SentenceSplitter.cpp` mirrors the tested Python logic; `tests/test_sentence_splitter.cpp` exists so you can verify it the moment you build. `PiperServerManager` (spawns/stops the server, unique per-instance socket) and the CLI options are new and also unverified by a compiler yet. Everything else (PiperClient, PlaybackController, DocumentView, MainWindow) is unverified by a compiler — expect the normal first-build friction (a missed include, a signal/slot signature mismatch) rather than fundamental design bugs, since the interfaces were kept deliberately small and single-purpose. |
 | `resources/` (icon, `.qrc`, `.desktop`) | **Not verified visually** — no display/desktop environment in this sandbox to confirm the icon actually renders in a taskbar or app menu, or that the `.desktop` file's `Exec`/`Icon` fields resolve correctly once installed. The `.qrc` path (`:/icons/text2sprech.png`) and file structure follow standard Qt/freedesktop.org conventions, but worth a visual check after your first `cmake --install` or `nix build`. |
 | `flake.nix` | **Not built** — no network here to fetch nixpkgs. There's one known real gap: the Piper Python package isn't reliably in nixpkgs, so `piper_server`'s empty `pythonEnv` relies on the CLI-binary fallback in `synth.py` unless you vendor a real package (flake.nix has a TODO with the two concrete options). |
@@ -206,6 +207,19 @@ text2sprech/
   speed) and current position ("word 456 (37%)"), based on a simple
   whitespace word count and a fixed 150 words/minute baseline -- both
   explicitly approximate, not meant to be precise.
+- **Punctuation/symbol-only "sentences" (e.g. leftover `---`, `***`, stray
+  HTML-derived junk) are dropped before ever being sent to Piper.** Piper's
+  own text normalization reduces text with no letters or digits at all to
+  zero phonemes, then crashes trying to write a WAV header for zero frames
+  (a confusing `wave.Error: # channels not specified`, not a clean failure).
+  Both `sentence_splitter.py` and `SentenceSplitter.cpp` filter these out at
+  the source (see `_is_speakable`/`hasSpeakableContent`), and `synth.py`'s
+  `PiperCliBackend` also checks before invoking Piper and degrades to a
+  brief silent WAV (with a logged warning, not a client-visible error) if
+  Piper still produces empty/malformed output despite that -- e.g. text
+  that looks speakable but trips up Piper's phonemizer in some other way.
+  A genuinely different failure (bad model path, Piper crashing for an
+  unrelated reason) still raises normally.
 - **Renamed from "reader" to "text2sprech"** (binary, window title,
   project/organization name used for the config file and `QSettings` path,
   Nix package/app names, socket-name prefix). Also added a proper Linux

@@ -11,6 +11,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import io
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -18,11 +19,41 @@ import wave
 from dataclasses import dataclass
 from pathlib import Path
 
+log = logging.getLogger("piper_server.synth")
+
 
 @dataclass
 class SynthResult:
     wav_bytes: bytes
     sample_rate: int
+
+
+def _is_speakable(text: str) -> bool:
+    """Whether there's anything for Piper to actually say.
+
+    Text with no letters or digits at all -- stray punctuation or symbols
+    left over from imperfect HTML-to-text extraction ("---", "***", "»") --
+    gets reduced by Piper's own text normalization to zero phonemes. Piper
+    then crashes writing a WAV header for zero frames (a confusing
+    wave.Error) rather than failing cleanly, so callers should check this
+    *before* invoking Piper rather than parsing that crash after the fact.
+    """
+    return any(ch.isalnum() for ch in text)
+
+
+def _silent_wav(sample_rate: int = 22050, duration_s: float = 0.05) -> bytes:
+    """A brief silent WAV, used in place of a synthesis result for text with
+    nothing speakable in it, or as a last-resort fallback if Piper still
+    produces no usable audio despite the _is_speakable() check (e.g. text
+    that *looks* speakable but Piper's phonemizer still can't handle)."""
+    n_frames = int(sample_rate * duration_s)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b"\x00\x00" * n_frames)
+    return buf.getvalue()
 
 
 class SynthBackend(abc.ABC):
@@ -68,6 +99,8 @@ class PiperPythonBackend(SynthBackend):
 
     def _synthesize_sync(self, text: str, voice: str, speed: float) -> SynthResult:
         model = self._load(voice)
+        if not _is_speakable(text):
+            return SynthResult(wav_bytes=_silent_wav(), sample_rate=model.config.sample_rate)
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wav_file:
             # length_scale is Piper's inverse-speed knob: >1 slower, <1 faster
@@ -95,6 +128,8 @@ class PiperCliBackend(SynthBackend):
         model_path = self._model_dir / f"{voice}.onnx"
         if not model_path.exists():
             raise FileNotFoundError(f"voice model not found: {model_path}")
+        if not _is_speakable(text):
+            return SynthResult(wav_bytes=_silent_wav(), sample_rate=22050)
         with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
             proc = await asyncio.create_subprocess_exec(
                 self._binary,
@@ -106,9 +141,28 @@ class PiperCliBackend(SynthBackend):
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await proc.communicate(text.encode("utf-8"))
+            stderr_text = stderr.decode(errors="replace")
             if proc.returncode != 0:
-                raise RuntimeError(f"piper CLI failed: {stderr.decode(errors='replace')}")
+                # This specific crash (Piper's own text normalization
+                # reducing input to zero phonemes, then failing to write a
+                # WAV header for zero frames) is almost always a text-content
+                # issue, not a real configuration/install problem -- the
+                # _is_speakable() check above should catch most cases, but
+                # text that *looks* speakable can still hit this if Piper's
+                # phonemizer can't handle it. Degrade to silence rather than
+                # surfacing a scary traceback to the user for what amounts
+                # to "nothing came out for one sentence".
+                if "channels not specified" in stderr_text or "wave.Error" in stderr_text:
+                    log.warning(
+                        "piper produced no audio for %r; substituting silence (%s)",
+                        text[:80], stderr_text.strip().splitlines()[-1] if stderr_text.strip() else "no stderr",
+                    )
+                    return SynthResult(wav_bytes=_silent_wav(), sample_rate=22050)
+                raise RuntimeError(f"piper CLI failed: {stderr_text}")
             wav_bytes = Path(tmp.name).read_bytes()
+        if not wav_bytes:
+            log.warning("piper produced an empty WAV for %r; substituting silence", text[:80])
+            return SynthResult(wav_bytes=_silent_wav(), sample_rate=22050)
         with wave.open(io.BytesIO(wav_bytes)) as wf:
             sample_rate = wf.getframerate()
         return SynthResult(wav_bytes=wav_bytes, sample_rate=sample_rate)

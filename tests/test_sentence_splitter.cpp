@@ -13,6 +13,7 @@ private slots:
     void blankLineBreaksParagraphs();
     void longUnpunctuatedTextGetsChunked();
     void unbreakableRunGetsHardCut();
+    void skipsUnspeakableJunkSegments();
 };
 
 void TestSentenceSplitter::offsetsRoundTrip_data()
@@ -104,6 +105,18 @@ void TestSentenceSplitter::unbreakableRunGetsHardCut()
         QCOMPARE(s.text.size(), 100);
         QCOMPARE(input.mid(s.start, s.end - s.start), s.text);
     }
+}
+
+void TestSentenceSplitter::skipsUnspeakableJunkSegments()
+{
+    // Simulates leftover HTML-derived punctuation/symbols between real
+    // sentences (the crash this guards against: Piper reduces text with no
+    // letters/digits to zero phonemes and then fails writing a WAV header).
+    QString input = "Real sentence here.\n---\n***\nAnother real one.";
+    auto sentences = SentenceSplitter::split(input);
+    QCOMPARE(sentences.size(), 2);
+    QCOMPARE(sentences[0].text, QStringLiteral("Real sentence here."));
+    QCOMPARE(sentences[1].text, QStringLiteral("Another real one."));
 }
 
 QTEST_APPLESS_MAIN(TestSentenceSplitter)
