@@ -8,7 +8,7 @@
 #include <QStringList>
 #include <optional>
 
-// Client for the reader<->piper-server protocol described in PROTOCOL.md:
+// Client for the text2sprech<->piper-server protocol described in PROTOCOL.md:
 // 4-byte big-endian length prefix + UTF-8 JSON, over a Unix domain socket
 // (QLocalSocket maps to AF_UNIX on Linux/macOS).
 //

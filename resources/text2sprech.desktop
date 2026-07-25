@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=text2sprech
+GenericName=Text-to-Speech Reader
+Comment=Local text-to-speech reader with live sentence highlighting
+Exec=text2sprech %f
+Icon=text2sprech
+Terminal=false
+StartupNotify=true
+Categories=Utility;Accessibility;AudioVideo;
+MimeType=text/plain;text/html;
+Keywords=tts;speech;accessibility;audiobook;piper;

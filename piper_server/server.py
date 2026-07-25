@@ -149,11 +149,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Persistent Piper TTS server")
     parser.add_argument(
         "--socket",
-        default=os.environ.get("READER_PIPER_SOCKET", "/tmp/reader-piper.sock"),
+        default=os.environ.get("TEXT2SPRECH_PIPER_SOCKET", "/tmp/text2sprech-piper.sock"),
     )
     parser.add_argument(
         "--model-dir",
-        default=os.environ.get("READER_PIPER_MODELS", str(Path.home() / ".local/share/piper/voices")),
+        default=os.environ.get("TEXT2SPRECH_PIPER_MODELS", str(Path.home() / ".local/share/piper/voices")),
     )
     parser.add_argument("--default-voice", default="en_US-lessac-medium")
     parser.add_argument("-v", "--verbose", action="store_true")

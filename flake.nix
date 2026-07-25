@@ -1,5 +1,5 @@
 {
-  description = "Local TTS reader (Qt6 GUI + Piper server)";
+  description = "text2sprech: local TTS reader (Qt6 GUI + Piper server)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -51,9 +51,9 @@
           '';
         };
 
-        # --- C++ side: the Qt6 reader -------------------------------------
-        reader = pkgs.stdenv.mkDerivation {
-          pname = "reader";
+        # --- C++ side: the Qt6 app -----------------------------------------
+        text2sprech = pkgs.stdenv.mkDerivation {
+          pname = "text2sprech";
           version = "0.1.0";
           src = ./.;
           nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.qt6.wrapQtAppsHook ];
@@ -65,20 +65,20 @@
           # expects extra environment tweaks to be added to a Qt app.
           # This is what lets PiperServerManager's
           # QStandardPaths::findExecutable("piper-server") succeed at
-          # runtime for an installed/packaged `reader`.
+          # runtime for an installed/packaged `text2sprech`.
           qtWrapperArgs = [ "--prefix" "PATH" ":" "${piper-server}/bin" ];
         };
       in
       {
         packages = {
-          inherit reader piper-server;
-          default = reader;
+          inherit text2sprech piper-server;
+          default = text2sprech;
         };
 
         apps = {
-          reader = flake-utils.lib.mkApp { drv = reader; exePath = "/bin/reader"; };
+          text2sprech = flake-utils.lib.mkApp { drv = text2sprech; exePath = "/bin/text2sprech"; };
           piper-server = flake-utils.lib.mkApp { drv = piper-server; exePath = "/bin/piper-server"; };
-          default = self.apps.${system}.reader;
+          default = self.apps.${system}.text2sprech;
         };
 
         devShells.default = pkgs.mkShell {
@@ -93,8 +93,8 @@
             piper-server
           ];
           shellHook = ''
-            echo "reader dev shell: cmake -B build -G Ninja && cmake --build build && ./build/reader"
-            echo "(piper-server is started automatically by reader now -- see"
+            echo "text2sprech dev shell: cmake -B build -G Ninja && cmake --build build && ./build/text2sprech"
+            echo "(piper-server is started automatically by text2sprech now -- see"
             echo " src/speech/PiperServerManager.cpp -- but you can still run"
             echo " it standalone: python3 piper_server/server.py --verbose)"
             echo "(see PROTOCOL.md; note the piper-python-package gap noted in flake.nix)"

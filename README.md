@@ -1,4 +1,4 @@
-# reader — local TTS reader with live highlighting
+# text2sprech — local TTS reader with live highlighting
 
 Implements the v1 scope from the proposal: open text/HTML or paste from
 clipboard, sentence-by-sentence Piper TTS with pipelined lookahead, live
@@ -16,6 +16,7 @@ access**, so here's the honest breakdown:
 | `piper_server/` (Python) | **Tested end-to-end** — server + protocol framing + a real socket client, see below. Uses a `SilentTestBackend` (silent WAVs) because no Piper install/models are available in this sandbox; falls back automatically to a real Piper CLI or Python backend if either is present on your machine. |
 | `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials, newline-forced breaks, blank-line paragraph breaks, and max-length subdivision (both a whitespace-breakable long run and a hard, unbreakable one). |
 | C++ (`src/`, `tests/`) | **Written but not compiled** — no Qt6/CMake toolchain available here. `SentenceSplitter.cpp` mirrors the tested Python logic; `tests/test_sentence_splitter.cpp` exists so you can verify it the moment you build. `PiperServerManager` (spawns/stops the server, unique per-instance socket) and the CLI options are new and also unverified by a compiler yet. Everything else (PiperClient, PlaybackController, DocumentView, MainWindow) is unverified by a compiler — expect the normal first-build friction (a missed include, a signal/slot signature mismatch) rather than fundamental design bugs, since the interfaces were kept deliberately small and single-purpose. |
+| `resources/` (icon, `.qrc`, `.desktop`) | **Not verified visually** — no display/desktop environment in this sandbox to confirm the icon actually renders in a taskbar or app menu, or that the `.desktop` file's `Exec`/`Icon` fields resolve correctly once installed. The `.qrc` path (`:/icons/text2sprech.png`) and file structure follow standard Qt/freedesktop.org conventions, but worth a visual check after your first `cmake --install` or `nix build`. |
 | `flake.nix` | **Not built** — no network here to fetch nixpkgs. There's one known real gap: the Piper Python package isn't reliably in nixpkgs, so `piper_server`'s empty `pythonEnv` relies on the CLI-binary fallback in `synth.py` unless you vendor a real package (flake.nix has a TODO with the two concrete options). |
 
 ## Running it
@@ -26,7 +27,7 @@ cmake -B build -G Ninja
 cmake --build build
 
 # Just run it -- piper-server is started and stopped automatically:
-./build/reader
+./build/text2sprech
 ```
 
 The app now manages the Piper server's lifecycle itself (`PiperServerManager`,
@@ -36,7 +37,7 @@ instances of the app can run at once without colliding. On clean shutdown it
 sends SIGTERM to the child (which `server.py`'s own signal handler turns into
 a graceful stop), escalating to SIGKILL if it doesn't exit within ~2s.
 
-It locates the server to spawn in this order: `$READER_PIPER_SERVER_BIN` if
+It locates the server to spawn in this order: `$TEXT2SPRECH_PIPER_SERVER_BIN` if
 set, then a `piper-server` executable on `PATH` (what the flake's
 `piper-server` package + `qtWrapperArgs` provide once installed), then
 falling back to `python3 piper_server/server.py` using the source-tree path
@@ -45,7 +46,7 @@ baked in at CMake configure time (dev-build convenience only).
 ### Command-line options
 
 ```
-./build/reader [options] [file]
+./build/text2sprech [options] [file]
 
 --voice <name>       Select this voice on startup (must match one the server
                      reports; falls back to the server default with a stderr
@@ -67,10 +68,10 @@ baked in at CMake configure time (dev-build convenience only).
                      --autoplay doesn't race the async socket connect.
 ```
 
-Example: `./build/reader --voice en_US-lessac-medium --speed 1.25 --autoplay book.txt`
+Example: `./build/text2sprech --voice en_US-lessac-medium --speed 1.25 --autoplay book.txt`
 
 Example attaching to your own server: start `python3 piper_server/server.py
---socket /tmp/my-piper.sock` yourself, then `./build/reader --piper-socket
+--socket /tmp/my-piper.sock` yourself, then `./build/text2sprech --piper-socket
 /tmp/my-piper.sock`.
 
 The toolbar has separate "Paste Clipboard" and "Paste Selection" buttons
@@ -80,7 +81,7 @@ support, i.e. Windows/macOS).
 ### Config file
 
 Defaults for voice, speed, and text zoom level can be set at (Linux)
-`~/.config/reader/reader.ini` (a plain text file, forced to that format on
+`~/.config/text2sprech/text2sprech.ini` (a plain text file, forced to that format on
 every platform rather than the Windows registry or macOS plist QSettings
 would otherwise use) so you don't have to pass the same CLI flags every
 time. CLI flags always override the config file when given.
@@ -101,18 +102,22 @@ Or via the flake, once you can reach the network to resolve nixpkgs:
 
 ```bash
 nix develop
-nix build .#reader
+nix build .#text2sprech
 nix run .#piper-server &
-nix run .#reader
+nix run .#text2sprech
 ```
 
 ## Project layout
 
 ```
-reader/
+text2sprech/
 ├── flake.nix
 ├── CMakeLists.txt
-├── PROTOCOL.md              # wire protocol between reader and piper-server
+├── PROTOCOL.md              # wire protocol between text2sprech and piper-server
+├── resources/
+│   ├── text2sprech.png       # app icon (512x512), embedded via qrc + installed to hicolor theme
+│   ├── text2sprech.qrc       # Qt resource file (AUTORCC) embedding the icon into the binary
+│   └── text2sprech.desktop   # Linux desktop entry (app menu, file-manager "Open With")
 ├── piper_server/
 │   ├── server.py            # asyncio unix-socket server
 │   ├── protocol.py           # framing (tested)
@@ -128,6 +133,7 @@ reader/
 │   │   └── SentenceSplitter.{h,cpp}   # C++ port of the tested Python logic
 │   └── speech/
 │       ├── PiperClient.{h,cpp}        # protocol client (QLocalSocket)
+│       ├── PiperServerManager.{h,cpp} # spawns/stops the piper-server child process
 │       └── PlaybackController.{h,cpp} # sentence queue, lookahead, QMediaPlayer
 └── tests/
     └── test_sentence_splitter.cpp
@@ -157,7 +163,7 @@ reader/
   only tinted every other sentence and left the rest at the plain
   background, which showed up as plain white in a light theme -- fixed so
   every sentence is now colored.
-- **Config file** at (Linux) `~/.config/reader/reader.ini` lets you set
+- **Config file** at (Linux) `~/.config/text2sprech/text2sprech.ini` lets you set
   defaults for voice, speed, and text zoom level without passing CLI flags
   every time. CLI flags always override it when given -- see the
   `[general]` section format below.
@@ -182,3 +188,11 @@ reader/
 - **HTML rendering relies on Qt's built-in subset** (`QTextDocument::setHtml`),
   which covers headings/paragraphs/emphasis/line breaks as scoped, but is
   not a full browser engine.
+- **Renamed from "reader" to "text2sprech"** (binary, window title,
+  project/organization name used for the config file and `QSettings` path,
+  Nix package/app names, socket-name prefix). Also added a proper Linux
+  desktop entry (`resources/text2sprech.desktop`) and icon: the icon is
+  both embedded into the binary via Qt resources (`resources/text2sprech.qrc`,
+  works even when run directly without a desktop launcher) and installed
+  to the `hicolor` icon theme at `share/icons/hicolor/512x512/apps/` (works
+  for icon-theme lookup from the `.desktop` file, app menus, etc.).

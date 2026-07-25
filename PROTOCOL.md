@@ -1,8 +1,11 @@
-# Reader <-> Piper Server Protocol
+# text2sprech <-> Piper Server Protocol
 
-Transport: Unix domain socket (path e.g. `$XDG_RUNTIME_DIR/reader-piper.sock`).
-TCP fallback on `127.0.0.1:<port>` is fine too (same framing) if you want to run
-the server in a container/VM separate from the GUI.
+Transport: Unix domain socket. The app generates a unique per-instance path
+(e.g. `/tmp/text2sprech-piper-<pid>-<uuid>.sock`, see `PiperServerManager`)
+so multiple instances can run at once; `--piper-socket` lets you point at
+an already-running server instead. TCP fallback on `127.0.0.1:<port>` is
+fine too (same framing) if you want to run the server in a container/VM
+separate from the GUI.
 
 ## Framing
 

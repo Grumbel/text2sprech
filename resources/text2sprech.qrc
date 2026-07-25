@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="text2sprech.png">text2sprech.png</file>
+    </qresource>
+</RCC>

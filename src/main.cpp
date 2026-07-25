@@ -2,14 +2,15 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QDebug>
+#include <QIcon>
 #include <QSettings>
 
 #include "ui/MainWindow.h"
 
 namespace {
 
-// Config file lives at (Linux) ~/.config/reader/reader.ini -- see README
-// for the full key list. CLI flags always take precedence over these:
+// Config file lives at (Linux) ~/.config/text2sprech/text2sprech.ini -- see
+// README for the full key list. CLI flags always take precedence over these:
 // a config value just changes the *default* used when a flag isn't given
 // (implemented via QCommandLineOption's defaultValue, so parser.value()
 // naturally returns the config value when the user didn't pass the flag).
@@ -54,9 +55,13 @@ FileConfig loadFileConfig()
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    QApplication::setApplicationName("reader");
-    QApplication::setOrganizationName("reader");
+    QApplication::setApplicationName("text2sprech");
+    QApplication::setOrganizationName("text2sprech");
     QApplication::setApplicationVersion("0.1.0");
+    // Embedded via resources/text2sprech.qrc (compiled in through AUTORCC) so
+    // the icon is available even without the .desktop file's icon-theme
+    // lookup finding it -- e.g. running the binary directly during dev.
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/text2sprech.png")));
     // Force a plain .ini file on every platform (rather than the Windows
     // registry / macOS plist QSettings would otherwise use), so the config
     // file is always something a user can open in a text editor.
@@ -65,7 +70,7 @@ int main(int argc, char *argv[])
     const FileConfig fileConfig = loadFileConfig();
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Local TTS reader with live sentence highlighting");
+    parser.setApplicationDescription("text2sprech -- a local TTS reader with live sentence highlighting");
     parser.addHelpOption();
     parser.addVersionOption();
 

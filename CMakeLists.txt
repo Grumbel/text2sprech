@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(reader LANGUAGES CXX)
+project(text2sprech LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,7 +9,7 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia Network)
 
-add_executable(reader
+add_executable(text2sprech
     src/main.cpp
     src/ui/MainWindow.cpp
     src/ui/MainWindow.h
@@ -24,26 +24,37 @@ add_executable(reader
     src/speech/PiperServerManager.h
     src/speech/PlaybackController.cpp
     src/speech/PlaybackController.h
+    resources/text2sprech.qrc
 )
 
-target_include_directories(reader PRIVATE src)
+target_include_directories(text2sprech PRIVATE src)
 
 # Dev-tree convenience: if no `piper-server` executable is on PATH (i.e. not
 # using the flake-packaged setup), PiperServerManager falls back to running
 # this script directly with python3. Not meaningful once installed/packaged
 # elsewhere -- that's what the flake's qtWrapperArgs PATH injection is for.
-target_compile_definitions(reader PRIVATE
+target_compile_definitions(text2sprech PRIVATE
     PIPER_SERVER_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/piper_server/server.py"
 )
 
-target_link_libraries(reader PRIVATE
+target_link_libraries(text2sprech PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::Network
 )
 
-install(TARGETS reader RUNTIME DESTINATION bin)
+install(TARGETS text2sprech RUNTIME DESTINATION bin)
+
+# Desktop integration: app menu entry + icon theme lookup. The icon is also
+# embedded into the binary itself via resources/text2sprech.qrc (AUTORCC)
+# for cases where icon-theme lookup doesn't apply, e.g. running the binary
+# directly during development rather than through a desktop launcher.
+install(FILES resources/text2sprech.desktop DESTINATION share/applications)
+install(FILES resources/text2sprech.png
+    DESTINATION share/icons/hicolor/512x512/apps
+    RENAME text2sprech.png
+)
 
 # --- Tests (optional, only built if Qt Test is found) ---
 find_package(Qt6 COMPONENTS Test QUIET)

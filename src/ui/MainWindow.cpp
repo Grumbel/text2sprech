@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QIcon>
 #include <QKeySequence>
 #include <QMessageBox>
 #include <QMimeData>
@@ -95,7 +96,8 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     }
 
     resize(900, 700);
-    setWindowTitle(tr("Reader"));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/text2sprech.png")));
+    setWindowTitle(tr("text2sprech"));
 }
 
 void MainWindow::connectToPiperServer(const QString &socketPath)
