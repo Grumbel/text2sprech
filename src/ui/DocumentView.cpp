@@ -15,6 +15,7 @@ DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
 void DocumentView::loadPlainText(const QString &text)
 {
     setPlainText(text);
+    reapplyZoom();
 }
 
 void DocumentView::loadHtml(const QString &html)
@@ -25,30 +26,63 @@ void DocumentView::loadHtml(const QString &html)
     // are not supported. Fine for the "headings/paragraphs/emphasis/line
     // breaks" scope in the proposal; flag it if richer HTML shows up.
     setHtml(html);
+    reapplyZoom();
+}
+
+void DocumentView::reapplyZoom()
+{
+    // zoomIn/zoomOut scale the font sizes of text already in the document
+    // at the time they're called -- they don't affect content inserted
+    // afterwards. So switching documents resets to the un-zoomed size
+    // unless we explicitly reapply the accumulated zoom here.
+    if (m_zoomSteps != 0) {
+        zoomIn(m_zoomSteps);
+    }
+}
+
+void DocumentView::increaseTextSize()
+{
+    zoomIn(1);
+    ++m_zoomSteps;
+}
+
+void DocumentView::decreaseTextSize()
+{
+    zoomIn(-1);
+    --m_zoomSteps;
+}
+
+void DocumentView::resetTextSize()
+{
+    if (m_zoomSteps != 0) {
+        zoomIn(-m_zoomSteps);
+        m_zoomSteps = 0;
+    }
 }
 
 void DocumentView::setSentenceBoundaries(const QVector<Sentence> &sentences)
 {
     m_tintSelections.clear();
 
-    // Tint every other sentence only -- leaving the rest at the plain
-    // background creates a visible banding pattern without needing a
-    // strong color. A low-alpha black/white overlay (rather than a fixed
-    // color) adapts automatically to light and dark palettes/themes.
+    // Every sentence gets tinted now (alternating between two shades)
+    // rather than alternating tint/no-tint -- leaving every other sentence
+    // at the plain background meant half of them still showed up white.
+    // Both shades are yellow-family so they read as one cohesive highlight
+    // scheme rather than two unrelated colors: a pale butter yellow and a
+    // warmer gold/amber, tuned separately for light vs. dark themes so
+    // neither washes out or overwhelms the base background.
     bool isDarkTheme = palette().color(QPalette::Base).lightness() < 128;
-    QColor tintColor = isDarkTheme ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 20);
+    QColor colorA = isDarkTheme ? QColor(133, 108, 8, 110) : QColor(255, 247, 191, 200);  // pale butter yellow
+    QColor colorB = isDarkTheme ? QColor(168, 122, 10, 110) : QColor(255, 214, 92, 200);  // warmer gold/amber
 
     const int charCount = document()->characterCount();
     for (int i = 0; i < sentences.size(); ++i) {
-        if (i % 2 == 0) {
-            continue; // untinted -- alternates with the tinted ones below
-        }
         const Sentence &s = sentences[i];
         if (s.start < 0 || s.end > charCount || s.start >= s.end) {
             continue;
         }
         QTextEdit::ExtraSelection selection;
-        selection.format.setBackground(tintColor);
+        selection.format.setBackground(i % 2 == 0 ? colorA : colorB);
         QTextCursor cursor(document());
         cursor.setPosition(s.start);
         cursor.setPosition(s.end, QTextCursor::KeepAnchor);
@@ -69,8 +103,9 @@ void DocumentView::refreshExtraSelections()
 {
     QList<QTextEdit::ExtraSelection> combined = m_tintSelections;
     if (m_hasCurrentHighlight) {
-        // Drawn last so the "currently playing" highlight sits visibly on
-        // top of the alternating tint rather than blending with it.
+        // Drawn last so the "currently playing"/"clicked" highlight sits
+        // visibly on top of the alternating tint rather than blending
+        // with it.
         combined.append(m_currentHighlight);
     }
     setExtraSelections(combined);

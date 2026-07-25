@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QKeySequence>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QStatusBar>
@@ -29,6 +30,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     : QMainWindow(parent), m_options(options)
 {
     m_documentView = new DocumentView(this);
+    m_documentView->setInitialZoomSteps(m_options.textZoomSteps);
     setCentralWidget(m_documentView);
 
     m_piperClient = new PiperClient(this);
@@ -43,11 +45,8 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         // Deferred (rather than opened immediately in main()) because the
         // socket connect is asynchronous -- opening it before the event
         // loop has even started would mean autoplay tries to speak before
-        // we're actually connected. This connection only ever acts once.
-        if (!m_initialFileLoaded && !m_options.initialFile.isEmpty()) {
-            m_initialFileLoaded = true;
-            openFilePath(m_options.initialFile);
-        }
+        // we're actually connected.
+        loadStartupContentIfNeeded();
     });
     connect(m_piperClient, &PiperClient::connectionError, this, [this](const QString &msg) {
         // A freshly-spawned piper-server needs a moment (Python startup,
@@ -129,8 +128,15 @@ void MainWindow::setUpUi()
     auto *openAction = toolbar->addAction(tr("Open…"));
     connect(openAction, &QAction::triggered, this, &MainWindow::openFile);
 
-    auto *pasteAction = toolbar->addAction(tr("Paste"));
-    connect(pasteAction, &QAction::triggered, this, &MainWindow::pasteFromClipboard);
+    auto *pasteClipboardAction = toolbar->addAction(tr("Paste Clipboard"));
+    connect(pasteClipboardAction, &QAction::triggered, this, [this] { pasteFromSource(QClipboard::Clipboard); });
+
+    auto *pasteSelectionAction = toolbar->addAction(tr("Paste Selection"));
+    if (!QApplication::clipboard()->supportsSelection()) {
+        pasteSelectionAction->setEnabled(false);
+        pasteSelectionAction->setToolTip(tr("Primary selection isn't supported on this platform"));
+    }
+    connect(pasteSelectionAction, &QAction::triggered, this, [this] { pasteFromSource(QClipboard::Selection); });
 
     toolbar->addSeparator();
 
@@ -154,7 +160,9 @@ void MainWindow::setUpUi()
 
     m_voiceCombo = new QComboBox(this);
     m_voiceCombo->setMinimumWidth(200);
-    connect(m_voiceCombo, &QComboBox::currentTextChanged, m_piperClient, &PiperClient::setVoice);
+    connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [this](const QString &voice) {
+        m_playback->setVoice(voice);
+    });
     toolbar->addWidget(m_voiceCombo);
 
     m_speedSpin = new QDoubleSpinBox(this);
@@ -167,6 +175,20 @@ void MainWindow::setUpUi()
     m_speedSpin->setSuffix(tr("x"));
     connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
     toolbar->addWidget(m_speedSpin);
+
+    toolbar->addSeparator();
+
+    auto *decreaseTextSizeAction = toolbar->addAction(tr("A-"));
+    decreaseTextSizeAction->setToolTip(tr("Decrease text size (Ctrl+-)"));
+    connect(decreaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
+
+    auto *resetTextSizeAction = toolbar->addAction(tr("Reset size"));
+    resetTextSizeAction->setToolTip(tr("Reset text size (Ctrl+0)"));
+    connect(resetTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::resetTextSize);
+
+    auto *increaseTextSizeAction = toolbar->addAction(tr("A+"));
+    increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
+    connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
 
     statusBar()->showMessage(tr("Connecting to piper-server…"));
 }
@@ -197,6 +219,21 @@ void MainWindow::setUpShortcuts()
     speedDown->setShortcut(Qt::Key_Minus);
     connect(speedDown, &QAction::triggered, this, [this] { m_speedSpin->stepDown(); });
     addAction(speedDown);
+
+    auto *increaseTextSize = new QAction(this);
+    increaseTextSize->setShortcut(QKeySequence::ZoomIn);
+    connect(increaseTextSize, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
+    addAction(increaseTextSize);
+
+    auto *decreaseTextSize = new QAction(this);
+    decreaseTextSize->setShortcut(QKeySequence::ZoomOut);
+    connect(decreaseTextSize, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
+    addAction(decreaseTextSize);
+
+    auto *resetTextSize = new QAction(this);
+    resetTextSize->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
+    connect(resetTextSize, &QAction::triggered, m_documentView, &DocumentView::resetTextSize);
+    addAction(resetTextSize);
 }
 
 void MainWindow::openFile()
@@ -225,15 +262,44 @@ void MainWindow::openFilePath(const QString &path)
     loadDocumentText(contents, isHtml);
 }
 
-void MainWindow::pasteFromClipboard()
+void MainWindow::pasteFromSource(QClipboard::Mode mode)
 {
-    const QMimeData *mime = QApplication::clipboard()->mimeData();
+    QClipboard *clipboard = QApplication::clipboard();
+    if (mode == QClipboard::Selection && !clipboard->supportsSelection()) {
+        // Primary selection is an X11/Wayland-with-support concept; it
+        // doesn't exist on Windows or macOS.
+        const QString msg = tr("This platform doesn't support the primary selection (--paste-selection).");
+        qWarning().noquote() << msg;
+        statusBar()->showMessage(msg, 5000);
+        return;
+    }
+    const QMimeData *mime = clipboard->mimeData(mode);
     if (mime->hasHtml()) {
         loadDocumentText(mime->html(), true);
     } else if (mime->hasText()) {
         loadDocumentText(mime->text(), false);
     } else {
-        statusBar()->showMessage(tr("Clipboard has no text content"), 3000);
+        statusBar()->showMessage(tr("Nothing to paste from that source"), 3000);
+    }
+}
+
+void MainWindow::loadStartupContentIfNeeded()
+{
+    if (m_startupContentLoaded) {
+        return;
+    }
+    m_startupContentLoaded = true;
+
+    if (m_options.pasteSelection && m_options.pasteClipboard) {
+        qWarning().noquote() << "Both --paste-selection and --paste-clipboard given; using --paste-selection";
+    }
+
+    if (m_options.pasteSelection) {
+        pasteFromSource(QClipboard::Selection);
+    } else if (m_options.pasteClipboard) {
+        pasteFromSource(QClipboard::Clipboard);
+    } else if (!m_options.initialFile.isEmpty()) {
+        openFilePath(m_options.initialFile);
     }
 }
 
@@ -299,6 +365,12 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
         return;
     }
     int index = sentenceIndexForOffset(plainTextOffset);
+    const Sentence &sentence = m_sentences[index];
+    // Immediate visual feedback regardless of playback state -- if we're
+    // paused/stopped, seekToSentence() below won't emit sentenceStarted
+    // (that only fires once audio actually starts), so without this the
+    // click would appear to do nothing until Play is pressed.
+    m_documentView->highlightRange(sentence.start, sentence.end);
     m_playback->seekToSentence(index);
 }
 
@@ -324,7 +396,7 @@ void MainWindow::onVoiceListReady(const QStringList &voices, const QString &curr
     m_voiceCombo->blockSignals(false);
 
     if (selected != current) {
-        m_piperClient->setVoice(selected);
+        m_playback->setVoice(selected);
     }
     // Speed was set on the spin box during setUpUi() before we were
     // connected, so the actual synth-side speed was never sent -- send it

@@ -93,6 +93,22 @@ void PlaybackController::setSpeed(double speed)
                                    // to avoid pitch distortion from naive resampling.
 }
 
+void PlaybackController::setVoice(const QString &voice)
+{
+    // Order matters: cancel server-side in-flight synthesis for the *old*
+    // voice first (asyncio.CancelledError there means no stale audio
+    // message ever arrives for those requests), then update the session's
+    // voice, then drop anything we already cached under the old voice, and
+    // finally re-request what we still need so it comes back in the new
+    // voice.
+    m_client->cancelAll();
+    m_client->setVoice(voice);
+    m_audioCache.clear();
+    if (m_playing) {
+        requestLookahead();
+    }
+}
+
 void PlaybackController::requestLookahead()
 {
     if (m_currentIndex < 0) {

@@ -56,6 +56,12 @@ baked in at CMake configure time (dev-build convenience only).
 --piper-socket <path> Connect to an already-running piper-server at this
                      socket instead of spawning one. The app will not stop
                      a server given this way -- you own its lifecycle.
+--paste-clipboard    Load the clipboard's contents on startup (HTML if
+                     available, plain text otherwise). Takes priority over
+                     [file] if both are given.
+--paste-selection    Load the primary selection (X11/Wayland-with-support
+                     only) on startup. Takes priority over --paste-clipboard
+                     and [file] if more than one is given.
 [file]               Optional text/HTML file to open on startup. Deferred
                      until the piper-server connection is actually up, so
                      --autoplay doesn't race the async socket connect.
@@ -66,6 +72,30 @@ Example: `./build/reader --voice en_US-lessac-medium --speed 1.25 --autoplay boo
 Example attaching to your own server: start `python3 piper_server/server.py
 --socket /tmp/my-piper.sock` yourself, then `./build/reader --piper-socket
 /tmp/my-piper.sock`.
+
+The toolbar has separate "Paste Clipboard" and "Paste Selection" buttons
+(the latter disabled with a tooltip on platforms without primary-selection
+support, i.e. Windows/macOS).
+
+### Config file
+
+Defaults for voice, speed, and text zoom level can be set at (Linux)
+`~/.config/reader/reader.ini` (a plain text file, forced to that format on
+every platform rather than the Windows registry or macOS plist QSettings
+would otherwise use) so you don't have to pass the same CLI flags every
+time. CLI flags always override the config file when given.
+
+```ini
+[general]
+voice=en_US-lessac-medium
+speed=1.25
+textZoomSteps=2
+```
+
+`textZoomSteps` is the net number of `DocumentView::increaseTextSize()`
+steps to apply on startup (negative to start smaller); there's no CLI flag
+for it, config-file only for now. Invalid values (out of range, wrong type)
+are ignored with a warning printed to stderr, falling back to the default.
 
 Or via the flake, once you can reach the network to resolve nixpkgs:
 
@@ -121,10 +151,34 @@ reader/
   break gets further subdivided at whitespace -- see the docstring in
   `piper_server/sentence_splitter.py` for the tradeoffs this introduces
   (hard-wrapped text files get chopped per line).
-- **Every sentence gets a subtle alternating background tint** in
-  `DocumentView` (low-alpha black/white overlay, adapting to light/dark
-  themes) so segment boundaries are visible independent of playback; the
-  "currently playing" highlight is drawn on top of that.
+- **Every sentence gets a background tint** in `DocumentView`, alternating
+  between two yellow-family shades (pale butter yellow / warmer gold,
+  tuned separately for light and dark themes). An earlier version of this
+  only tinted every other sentence and left the rest at the plain
+  background, which showed up as plain white in a light theme -- fixed so
+  every sentence is now colored.
+- **Config file** at (Linux) `~/.config/reader/reader.ini` lets you set
+  defaults for voice, speed, and text zoom level without passing CLI flags
+  every time. CLI flags always override it when given -- see the
+  `[general]` section format below.
+- **Clicking a sentence highlights it immediately**, independent of
+  playback state -- previously the highlight only appeared once audio
+  actually started, so clicking while paused looked like it did nothing.
+- **Text size** is adjustable via toolbar buttons or Ctrl+=/Ctrl+-/Ctrl+0,
+  using `QTextEdit::zoomIn`/`zoomOut` (which scales all font sizes
+  proportionally, so HTML headings stay bigger than body text). The
+  cumulative zoom level is reapplied automatically whenever a new document
+  is loaded, since zoom only affects text already in the document at the
+  time it's called.
+- **Switching voices used to "stick" with the old voice for a sentence or
+  two.** The bug: the voice combo was wired directly to `PiperClient`,
+  which only updates the server's voice for *future* `speak` requests --
+  sentences already prefetched (lookahead) or mid-synthesis under the old
+  voice kept arriving and playing regardless. Fixed by routing voice
+  changes through `PlaybackController::setVoice()`, which cancels
+  in-flight/queued synthesis and discards cached-but-unplayed audio before
+  switching, so only the sentence already actively playing (audio already
+  flowing to the device) finishes in the old voice.
 - **HTML rendering relies on Qt's built-in subset** (`QTextDocument::setHtml`),
   which covers headings/paragraphs/emphasis/line breaks as scoped, but is
   not a full browser engine.

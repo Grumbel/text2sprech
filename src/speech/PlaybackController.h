@@ -34,6 +34,14 @@ public:
     void previous();
     void seekToSentence(int sentenceIndex);
     void setSpeed(double speed); // forwarded to PiperClient::setSpeed + QMediaPlayer playback rate
+    // Cancels in-flight synthesis and discards any cached-but-unplayed audio
+    // before switching voices -- without this, sentences already queued
+    // ahead (lookahead prefetch) or mid-synthesis when the user switches
+    // keep arriving in the old voice, so playback audibly "sticks" with the
+    // old voice for a sentence or two after the change. The one sentence
+    // already actively playing right now is unaffected (that audio is
+    // already flowing to the audio device) -- only upcoming ones.
+    void setVoice(const QString &voice);
     void setLookahead(int count) { m_lookahead = count; }
 
     bool isPlaying() const;
