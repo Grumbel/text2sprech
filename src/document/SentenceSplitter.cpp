@@ -1,7 +1,8 @@
 #include "SentenceSplitter.h"
 
+#include <QPair>
 #include <QRegularExpression>
-#include <QSet>
+#include <algorithm>
 
 namespace {
 
@@ -21,6 +22,15 @@ const QRegularExpression &boundaryRegex()
 {
     static const QRegularExpression kRe(
         QStringLiteral("[.!?]+[\"'\\x{201d}\\x{2019})\\]]*\\s+(?=[A-Z\"'\\x{201c}\\x{2018}(\\[]|$)"));
+    return kRe;
+}
+
+// Newlines are always a hard boundary regardless of punctuation -- see the
+// header/sentence_splitter.py docstring for why (list items, poetry,
+// dialogue without terminal punctuation used to all merge into one segment).
+const QRegularExpression &newlineRegex()
+{
+    static const QRegularExpression kRe(QStringLiteral("\\n+"));
     return kRe;
 }
 
@@ -65,25 +75,76 @@ bool SentenceSplitter::isDecimalPoint(const QString &text, int periodPos)
         && text[periodPos + 1].isDigit();
 }
 
-QVector<Sentence> SentenceSplitter::split(const QString &text, int startId)
+QVector<QPair<int, int>> SentenceSplitter::splitLongRange(const QString &text, int start, int end, int maxLen)
+{
+    QVector<QPair<int, int>> pieces;
+    if (maxLen <= 0 || end - start <= maxLen) {
+        pieces.append({start, end});
+        return pieces;
+    }
+
+    int pos = start;
+    while (end - pos > maxLen) {
+        int searchLimit = pos + maxLen;
+        int breakAt = -1;
+        // Look for the last whitespace at or before the limit, but after pos.
+        for (int i = searchLimit; i > pos; --i) {
+            if (text[i - 1].isSpace()) {
+                breakAt = i - 1;
+                break;
+            }
+        }
+        if (breakAt <= pos) {
+            breakAt = searchLimit; // no whitespace to break on; hard cut
+        }
+        pieces.append({pos, breakAt});
+        pos = breakAt;
+    }
+    pieces.append({pos, end});
+    return pieces;
+}
+
+QVector<Sentence> SentenceSplitter::split(const QString &text, int startId, int maxLen)
 {
     QVector<Sentence> result;
     if (text.isEmpty()) {
         return result;
     }
 
-    QVector<int> boundaryEnds; // exclusive end offsets, after trailing whitespace
-    auto it = boundaryRegex().globalMatch(text);
-    while (it.hasNext()) {
-        auto m = it.next();
+    QSet<int> boundarySet;
+
+    auto punctIt = boundaryRegex().globalMatch(text);
+    while (punctIt.hasNext()) {
+        auto m = punctIt.next();
         int punctStart = m.capturedStart(0);
         if (endsWithAbbreviation(text, punctStart) || isDecimalPoint(text, punctStart)) {
             continue;
         }
-        boundaryEnds.append(m.capturedEnd(0));
+        boundarySet.insert(m.capturedEnd(0));
     }
 
+    auto nlIt = newlineRegex().globalMatch(text);
+    while (nlIt.hasNext()) {
+        boundarySet.insert(nlIt.next().capturedEnd(0));
+    }
+
+    QVector<int> boundaries;
+    for (int b : boundarySet) {
+        if (b > 0 && b < text.size()) {
+            boundaries.append(b);
+        }
+    }
+    std::sort(boundaries.begin(), boundaries.end());
+
+    // Raw (untrimmed) ranges covering the whole text contiguously.
+    QVector<QPair<int, int>> rawRanges;
     int start = 0;
+    for (int end : boundaries) {
+        rawRanges.append({start, end});
+        start = end;
+    }
+    rawRanges.append({start, static_cast<int>(text.size())});
+
     int nextId = startId;
     auto emitChunk = [&](int chunkStart, int chunkEnd) {
         QString chunk = text.mid(chunkStart, chunkEnd - chunkStart);
@@ -96,11 +157,11 @@ QVector<Sentence> SentenceSplitter::split(const QString &text, int startId)
         result.append(Sentence{nextId++, offset, offset + static_cast<int>(trimmed.size()), trimmed});
     };
 
-    for (int end : boundaryEnds) {
-        emitChunk(start, end);
-        start = end;
+    for (const auto &range : rawRanges) {
+        for (const auto &sub : splitLongRange(text, range.first, range.second, maxLen)) {
+            emitChunk(sub.first, sub.second);
+        }
     }
-    emitChunk(start, text.size());
 
     return result;
 }

@@ -14,7 +14,7 @@ access**, so here's the honest breakdown:
 | Component | Status |
 |---|---|
 | `piper_server/` (Python) | **Tested end-to-end** — server + protocol framing + a real socket client, see below. Uses a `SilentTestBackend` (silent WAVs) because no Piper install/models are available in this sandbox; falls back automatically to a real Piper CLI or Python backend if either is present on your machine. |
-| `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials edge cases. |
+| `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials, newline-forced breaks, blank-line paragraph breaks, and max-length subdivision (both a whitespace-breakable long run and a hard, unbreakable one). |
 | C++ (`src/`, `tests/`) | **Written but not compiled** — no Qt6/CMake toolchain available here. `SentenceSplitter.cpp` mirrors the tested Python logic; `tests/test_sentence_splitter.cpp` exists so you can verify it the moment you build. `PiperServerManager` (spawns/stops the server, unique per-instance socket) and the CLI options are new and also unverified by a compiler yet. Everything else (PiperClient, PlaybackController, DocumentView, MainWindow) is unverified by a compiler — expect the normal first-build friction (a missed include, a signal/slot signature mismatch) rather than fundamental design bugs, since the interfaces were kept deliberately small and single-purpose. |
 | `flake.nix` | **Not built** — no network here to fetch nixpkgs. There's one known real gap: the Piper Python package isn't reliably in nixpkgs, so `piper_server`'s empty `pythonEnv` relies on the CLI-binary fallback in `synth.py` unless you vendor a real package (flake.nix has a TODO with the two concrete options). |
 
@@ -116,6 +116,15 @@ reader/
 - **Sentence splitting is a heuristic**, not a full tokenizer. It handles
   common abbreviations, decimal numbers, and single-letter initials, but
   unusual abbreviations or deeply nested quotes can still split wrong.
+  Newlines are always a hard boundary (independent of punctuation), and any
+  segment still longer than `max_len` (280 chars by default) with no natural
+  break gets further subdivided at whitespace -- see the docstring in
+  `piper_server/sentence_splitter.py` for the tradeoffs this introduces
+  (hard-wrapped text files get chopped per line).
+- **Every sentence gets a subtle alternating background tint** in
+  `DocumentView` (low-alpha black/white overlay, adapting to light/dark
+  themes) so segment boundaries are visible independent of playback; the
+  "currently playing" highlight is drawn on top of that.
 - **HTML rendering relies on Qt's built-in subset** (`QTextDocument::setHtml`),
   which covers headings/paragraphs/emphasis/line breaks as scoped, but is
   not a full browser engine.

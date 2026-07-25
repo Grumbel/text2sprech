@@ -265,6 +265,7 @@ void MainWindow::reindexSentences()
     QString plainText = m_documentView->document()->toPlainText();
     m_sentences = SentenceSplitter::split(plainText, /*startId=*/0);
     m_playback->loadSentences(m_sentences);
+    m_documentView->setSentenceBoundaries(m_sentences);
 }
 
 int MainWindow::sentenceIndexForOffset(int offset) const
