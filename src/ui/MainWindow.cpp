@@ -434,6 +434,12 @@ void MainWindow::setUpUi()
     increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
 
+    auto *findToolbarAction = toolbar->addAction(
+        themeIcon(QStringLiteral("edit-find"), style()->standardIcon(QStyle::SP_FileDialogContentsView)),
+        tr("Find"));
+    findToolbarAction->setToolTip(tr("Find text in the document (Ctrl+F)"));
+    connect(findToolbarAction, &QAction::triggered, this, &MainWindow::showFindBar);
+
     toolbar->addSeparator();
 
     auto *preferencesAction = toolbar->addAction(
@@ -771,7 +777,8 @@ void MainWindow::showWelcomeMessage()
              tr("Press <b>Play</b> (Space) to hear the document. The current sentence "
                 "is highlighted as it is spoken."),
              tr("Click any sentence, or use the <b>Left</b>/<b>Right</b> arrow keys, "
-                "to jump. Previous / Next on the transport bar do the same."),
+                "to jump. Previous / Next on the transport bar do the same. "
+                "<b>Find</b> (Ctrl+F) searches within the document."),
              tr("Choose <b>Voice</b> and <b>Speed</b> on the toolbar for this session. "
                 "<b>Preferences</b> sets defaults for the next launch (and can Apply "
                 "them now)."),
