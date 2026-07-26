@@ -638,19 +638,40 @@ void MainWindow::setUpUi()
     });
     m_playback->setVolume(1.0f);
 
-    // Layout: [elapsed] … [transport] … [remaining · sentence · volume]
-    controlsLayout->addWidget(m_elapsedLabel);
-    controlsLayout->addStretch(1);
-    controlsLayout->addWidget(prevBtn);
-    controlsLayout->addWidget(playPauseBtn);
-    controlsLayout->addWidget(stopBtn);
-    controlsLayout->addWidget(nextBtn);
-    controlsLayout->addStretch(1);
-    controlsLayout->addWidget(m_remainingLabel);
-    controlsLayout->addWidget(m_sentenceLabel);
-    controlsLayout->addSpacing(8);
-    controlsLayout->addWidget(m_muteButton);
-    controlsLayout->addWidget(m_volumeSlider);
+    // Three equal columns so transport stays visually centered: left and
+    // right share the same stretch, and side content is packed to the outer
+    // edges. Putting volume in the same HBox as elapsed/remaining made the
+    // right cluster much wider than the left and shoved Play/Stop off-center.
+    auto *leftSide = new QWidget(controlsRow);
+    auto *leftLayout = new QHBoxLayout(leftSide);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(8);
+    leftLayout->addWidget(m_elapsedLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    leftLayout->addStretch(1);
+
+    auto *transport = new QWidget(controlsRow);
+    auto *transportLayout = new QHBoxLayout(transport);
+    transportLayout->setContentsMargins(0, 0, 0, 0);
+    transportLayout->setSpacing(8);
+    transportLayout->addWidget(prevBtn);
+    transportLayout->addWidget(playPauseBtn);
+    transportLayout->addWidget(stopBtn);
+    transportLayout->addWidget(nextBtn);
+
+    auto *rightSide = new QWidget(controlsRow);
+    auto *rightLayout = new QHBoxLayout(rightSide);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(8);
+    rightLayout->addStretch(1);
+    rightLayout->addWidget(m_remainingLabel, 0, Qt::AlignVCenter);
+    rightLayout->addWidget(m_sentenceLabel, 0, Qt::AlignVCenter);
+    rightLayout->addSpacing(4);
+    rightLayout->addWidget(m_muteButton, 0, Qt::AlignVCenter);
+    rightLayout->addWidget(m_volumeSlider, 0, Qt::AlignVCenter);
+
+    controlsLayout->addWidget(leftSide, /*stretch=*/1);
+    controlsLayout->addWidget(transport, /*stretch=*/0, Qt::AlignCenter);
+    controlsLayout->addWidget(rightSide, /*stretch=*/1);
 
     playerColumn->addWidget(controlsRow);
     centralLayout->addWidget(playerBar);

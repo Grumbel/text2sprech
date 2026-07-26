@@ -77,14 +77,32 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     fontRowLayout->addWidget(m_fontSizeSpin, /*stretch=*/1);
 
     const QString voicesDir = defaultUserVoicesDirPath();
-    auto *voicesDirLabel = new QLabel(
-        tr("<b>Voice models folder</b><br/>"
-           "Drop Piper <code>.onnx</code> and matching <code>.onnx.json</code> files here "
-           "(any language). Created automatically if missing:<br/><code>%1</code>")
-            .arg(voicesDir),
-        this);
-    voicesDirLabel->setWordWrap(true);
-    voicesDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // Full-width spanning block (not a form field next to "Voices:"): a
+    // word-wrapped QLabel in the field column gets a tiny preferred width
+    // from QFormLayout, so the text wrapped early and looked clipped even
+    // when the dialog still had free horizontal space.
+    auto *voicesBlock = new QWidget(this);
+    auto *voicesBlockLayout = new QVBoxLayout(voicesBlock);
+    voicesBlockLayout->setContentsMargins(0, 4, 0, 0);
+    voicesBlockLayout->setSpacing(4);
+    auto *voicesTitle = new QLabel(tr("<b>Voice models folder</b>"), voicesBlock);
+    auto *voicesHelp = new QLabel(
+        tr("Drop Piper <code>.onnx</code> and matching <code>.onnx.json</code> files here "
+           "(any language). Created automatically if missing:"),
+        voicesBlock);
+    voicesHelp->setWordWrap(true);
+    voicesHelp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *voicesPath = new QLabel(voicesDir, voicesBlock);
+    voicesPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    voicesPath->setWordWrap(true);
+    voicesPath->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    QFont pathFont = voicesPath->font();
+    pathFont.setFamily(QStringLiteral("monospace"));
+    pathFont.setStyleHint(QFont::Monospace);
+    voicesPath->setFont(pathFont);
+    voicesBlockLayout->addWidget(voicesTitle);
+    voicesBlockLayout->addWidget(voicesHelp);
+    voicesBlockLayout->addWidget(voicesPath);
 
     m_extraVoiceDirsEdit = new QPlainTextEdit(this);
     m_extraVoiceDirsEdit->setPlaceholderText(
@@ -96,12 +114,14 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     auto *form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
     form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+    form->setRowWrapPolicy(QFormLayout::DontWrapRows);
     form->setHorizontalSpacing(12);
     form->setVerticalSpacing(10);
     form->addRow(tr("Voice:"), m_voiceCombo);
     form->addRow(tr("Speed:"), m_speedSpin);
     form->addRow(tr("Font:"), fontRow);
-    form->addRow(tr("Voices:"), voicesDirLabel);
+    // Single-widget addRow → spans both columns (full dialog content width).
+    form->addRow(voicesBlock);
     form->addRow(tr("Extra voice dirs:"), m_extraVoiceDirsEdit);
 
     // Theme defaults for reset + swatch preview when no override is stored.
@@ -149,7 +169,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     layout->addWidget(note);
     layout->addWidget(buttons);
 
-    setMinimumWidth(500);
+    setMinimumWidth(560);
     adjustSize();
 }
 
