@@ -22,6 +22,10 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
+#include <QStyle>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QStandardPaths>
 #include <algorithm>
 
@@ -58,7 +62,6 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         initialFont.setPointSize(m_options.fontPointSize);
     }
     m_documentView->setBaseFont(initialFont);
-    setCentralWidget(m_documentView);
 
     m_piperClient = new PiperClient(this);
     m_playback = new PlaybackController(m_piperClient, this);
@@ -94,7 +97,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_playback, &PlaybackController::preparingAudio, this, &MainWindow::onPreparingAudio);
     connect(m_playback, &PlaybackController::errorOccurred, this, &MainWindow::onPlaybackError);
     connect(m_playback, &PlaybackController::playbackFinished, this, [this] {
-        m_playPauseAction->setText(tr("Play"));
+        setPlayingUi(false);
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setActivity(tr("Finished"));
         statusBar()->showMessage(tr("Finished"), 3000);
@@ -160,6 +163,14 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::setUpUi()
 {
+    // Central column: document on top, media-player transport bar below.
+    auto *central = new QWidget(this);
+    auto *centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
+    centralLayout->addWidget(m_documentView, /*stretch=*/1);
+
+    // --- Top toolbar: document / settings only (no transport controls) ---
     auto *toolbar = addToolBar(tr("Controls"));
     toolbar->setMovable(false);
 
@@ -175,23 +186,6 @@ void MainWindow::setUpUi()
         pasteSelectionAction->setToolTip(tr("Primary selection isn't supported on this platform"));
     }
     connect(pasteSelectionAction, &QAction::triggered, this, [this] { pasteFromSource(QClipboard::Selection); });
-
-    toolbar->addSeparator();
-
-    // Deliberately no Previous/Next buttons here -- click any sentence in
-    // the document, or use the Left/Right arrow keys (see
-    // DocumentView::keyPressEvent), both of which reach the same
-    // jumpToSentence() as these would have.
-    m_playPauseAction = toolbar->addAction(tr("Play"));
-    connect(m_playPauseAction, &QAction::triggered, this, &MainWindow::togglePlayPause);
-
-    auto *stopAction = toolbar->addAction(tr("Stop"));
-    connect(stopAction, &QAction::triggered, this, [this] {
-        m_playback->stop();
-        m_documentView->clearHighlight();
-        m_playPauseAction->setText(tr("Play"));
-        setActivity(tr("Stopped"));
-    });
 
     toolbar->addSeparator();
 
@@ -241,6 +235,65 @@ void MainWindow::setUpUi()
     connect(m_documentView, &DocumentView::pasteRequested, this, [this](QClipboard::Mode mode) {
         pasteFromSource(mode);
     });
+
+    // --- Bottom transport bar (media-player style) ---
+    auto *playerBar = new QWidget(central);
+    playerBar->setObjectName(QStringLiteral("playerBar"));
+    auto *playerLayout = new QHBoxLayout(playerBar);
+    playerLayout->setContentsMargins(8, 6, 8, 6);
+    playerLayout->setSpacing(4);
+
+    const QSize iconSize(28, 28);
+
+    auto makeTransportButton = [this, playerBar, iconSize](QStyle::StandardPixmap sp, const QString &tip) {
+        auto *btn = new QToolButton(playerBar);
+        btn->setIcon(style()->standardIcon(sp));
+        btn->setIconSize(iconSize);
+        btn->setToolTip(tip);
+        btn->setAutoRaise(true);
+        btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        btn->setFocusPolicy(Qt::NoFocus);
+        return btn;
+    };
+
+    auto *prevBtn = makeTransportButton(QStyle::SP_MediaSkipBackward, tr("Previous sentence (Left)"));
+    connect(prevBtn, &QToolButton::clicked, this, [this] {
+        jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
+    });
+
+    m_playPauseAction = new QAction(style()->standardIcon(QStyle::SP_MediaPlay), tr("Play"), this);
+    m_playPauseAction->setToolTip(tr("Play (Space)"));
+    connect(m_playPauseAction, &QAction::triggered, this, &MainWindow::togglePlayPause);
+    auto *playPauseBtn = new QToolButton(playerBar);
+    playPauseBtn->setDefaultAction(m_playPauseAction);
+    playPauseBtn->setIconSize(QSize(36, 36));
+    playPauseBtn->setAutoRaise(true);
+    playPauseBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    playPauseBtn->setFocusPolicy(Qt::NoFocus);
+
+    auto *stopBtn = makeTransportButton(QStyle::SP_MediaStop, tr("Stop"));
+    connect(stopBtn, &QToolButton::clicked, this, [this] {
+        m_playback->stop();
+        m_documentView->clearHighlight();
+        setPlayingUi(false);
+        setActivity(tr("Stopped"));
+    });
+
+    auto *nextBtn = makeTransportButton(QStyle::SP_MediaSkipForward, tr("Next sentence (Right)"));
+    connect(nextBtn, &QToolButton::clicked, this, [this] {
+        jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex + 1);
+    });
+
+    // Center the transport cluster like a regular media player.
+    playerLayout->addStretch(1);
+    playerLayout->addWidget(prevBtn);
+    playerLayout->addWidget(playPauseBtn);
+    playerLayout->addWidget(stopBtn);
+    playerLayout->addWidget(nextBtn);
+    playerLayout->addStretch(1);
+
+    centralLayout->addWidget(playerBar);
+    setCentralWidget(central);
 
     // Left/normal area: current activity ("Preparing audio…", "Playing",
     // etc.) -- temporarily hidden by statusBar()->showMessage() popups and
@@ -363,9 +416,9 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
     reindexSentences();
     if (m_options.autoplay && !m_sentences.isEmpty()) {
         m_playback->play();
-        m_playPauseAction->setText(tr("Pause"));
+        setPlayingUi(true);
     } else {
-        m_playPauseAction->setText(tr("Play"));
+        setPlayingUi(false);
     }
     statusBar()->showMessage(tr("Loaded %1 sentences").arg(m_sentences.size()), 3000);
 }
@@ -405,16 +458,29 @@ void MainWindow::togglePlayPause()
 {
     if (m_playback->isPlaying()) {
         m_playback->pause();
-        m_playPauseAction->setText(tr("Play"));
+        setPlayingUi(false);
         // Keep the current sentence visible, but switch to the muted
         // "stopped/selected" color so it no longer looks actively speaking.
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setActivity(tr("Paused"));
     } else {
         m_playback->play();
-        m_playPauseAction->setText(tr("Pause"));
+        setPlayingUi(true);
         // play() will emit preparingAudio / sentenceStarted, which recolor
         // the highlight; no need to force a state here.
+    }
+}
+
+void MainWindow::setPlayingUi(bool playing)
+{
+    if (playing) {
+        m_playPauseAction->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+        m_playPauseAction->setText(tr("Pause"));
+        m_playPauseAction->setToolTip(tr("Pause (Space)"));
+    } else {
+        m_playPauseAction->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        m_playPauseAction->setText(tr("Play"));
+        m_playPauseAction->setToolTip(tr("Play (Space)"));
     }
 }
 

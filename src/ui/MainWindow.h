@@ -67,6 +67,8 @@ private slots:
 private:
     void setUpUi();
     void setUpShortcuts();
+    // Syncs play/pause action icon + text + tooltip with playback state.
+    void setPlayingUi(bool playing);
     void loadDocumentText(const QString &plainOrHtml, bool isHtml);
     void reindexSentences();
     int sentenceIndexForOffset(int offset) const;
