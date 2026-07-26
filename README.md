@@ -353,3 +353,8 @@ text2sprech/
   works even when run directly without a desktop launcher) and installed
   to the `hicolor` icon theme at `share/icons/hicolor/512x512/apps/` (works
   for icon-theme lookup from the `.desktop` file, app menus, etc.).
+
+## License
+
+text2sprech is licensed under the **GNU General Public License v3.0 or later**.
+See [`LICENSES/GPL-3.0-or-later.txt`](LICENSES/GPL-3.0-or-later.txt) for the full text.

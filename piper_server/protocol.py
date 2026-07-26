@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ingo Ruhnke <grumbel@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Length-prefixed JSON framing over asyncio streams.
 
 Wire format: [4-byte big-endian uint32 length][UTF-8 JSON payload]

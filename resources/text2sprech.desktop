@@ -11,3 +11,4 @@ StartupNotify=true
 Categories=Utility;Accessibility;AudioVideo;
 MimeType=text/plain;text/html;
 Keywords=tts;speech;accessibility;audiobook;piper;
+X-License=GPL-3.0-or-later

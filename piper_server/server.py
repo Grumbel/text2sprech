@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ingo Ruhnke <grumbel@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Persistent Piper TTS server.
 
 Listens on a Unix domain socket, keeps voice models loaded, and answers

@@ -39,7 +39,7 @@
           '';
           meta = with lib; {
             description = "Piper TTS voice model: en_US-lessac-medium";
-            license = licenses.mit;
+            license = licenses.gpl3Plus;
             platforms = platforms.all;
           };
         };
@@ -71,7 +71,7 @@
             meta = with lib; {
               description = "Unix-socket Piper TTS server for text2sprech"
                 + (if withDefaultVoice then " (bundled en_US-lessac-medium voice)" else "");
-              license = licenses.mit;
+              license = licenses.gpl3Plus;
               platforms = platforms.linux ++ platforms.darwin;
             };
           };
@@ -99,7 +99,7 @@
             meta = with lib; {
               description = "Local TTS reader with live sentence highlighting"
                 + (if withDefaultVoice then " (bundled en_US-lessac-medium voice)" else "");
-              license = licenses.mit;
+              license = licenses.gpl3Plus;
               platforms = platforms.linux ++ platforms.darwin;
               mainProgram = "text2sprech";
             };

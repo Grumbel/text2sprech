@@ -1,0 +1,41 @@
+version = 1
+
+# Docs and packaging metadata (no convenient in-file SPDX block).
+[[annotations]]
+path = [
+    "README.md",
+    "PROTOCOL.md",
+    "flake.nix",
+    "flake.lock",
+    "resources/text2sprech.desktop",
+    "resources/text2sprech.qrc",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ingo Ruhnke <grumbel@gmail.com>"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Binary assets.
+[[annotations]]
+path = [
+    "docs/screenshot.png",
+    "resources/text2sprech.png",
+    "text2sprech.png",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ingo Ruhnke <grumbel@gmail.com>"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Canonical license text (FSF).
+[[annotations]]
+path = [
+    "LICENSES/GPL-3.0-or-later.txt",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
+path = ["REUSE.toml"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ingo Ruhnke <grumbel@gmail.com>"
+SPDX-License-Identifier = "GPL-3.0-or-later"
