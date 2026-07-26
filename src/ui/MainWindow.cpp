@@ -405,17 +405,31 @@ void MainWindow::openFile()
 
 void MainWindow::openFilePath(const QString &path)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, tr("Open failed"), file.errorString());
-        return;
-    }
-    QTextStream stream(&file);
-    stream.setEncoding(QStringConverter::Utf8);
-    QString contents = stream.readAll();
+    QString contents;
+    bool isHtml = false;
 
-    bool isHtml = QFileInfo(path).suffix().compare("html", Qt::CaseInsensitive) == 0
-        || QFileInfo(path).suffix().compare("htm", Qt::CaseInsensitive) == 0;
+    if (path == QLatin1String("-")) {
+        // Pseudo-path: read the document from stdin (e.g. `cat book.txt | text2sprech -`).
+        // Must happen once at startup before anything else consumes stdin.
+        QTextStream stream(stdin, QIODevice::ReadOnly);
+        stream.setEncoding(QStringConverter::Utf8);
+        contents = stream.readAll();
+        const QString head = contents.trimmed().left(64).toLower();
+        isHtml = head.startsWith(QLatin1String("<!doctype html"))
+            || head.startsWith(QLatin1String("<html"));
+    } else {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QMessageBox::warning(this, tr("Open failed"), file.errorString());
+            return;
+        }
+        QTextStream stream(&file);
+        stream.setEncoding(QStringConverter::Utf8);
+        contents = stream.readAll();
+        isHtml = QFileInfo(path).suffix().compare(QLatin1String("html"), Qt::CaseInsensitive) == 0
+            || QFileInfo(path).suffix().compare(QLatin1String("htm"), Qt::CaseInsensitive) == 0;
+    }
+
     loadDocumentText(contents, isHtml);
 }
 

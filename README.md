@@ -64,7 +64,8 @@ baked in at CMake configure time (dev-build convenience only).
 --paste-selection    Load the primary selection (X11/Wayland-with-support
                      only) on startup. Takes priority over --paste-clipboard
                      and [file] if more than one is given.
-[file]               Optional text/HTML file to open on startup. Deferred
+[file]               Optional text/HTML file to open on startup. Use - to
+                     read from stdin. Deferred
                      until the piper-server connection is actually up, so
                      --autoplay doesn't race the async socket connect.
 ```

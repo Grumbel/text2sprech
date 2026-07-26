@@ -169,7 +169,10 @@ int main(int argc, char *argv[])
     parser.addOption(piperSocketOption);
     parser.addOption(pasteClipboardOption);
     parser.addOption(pasteSelectionOption);
-    parser.addPositionalArgument("file", "Optional text/HTML file to open on startup.", "[file]");
+    parser.addPositionalArgument(
+        "file",
+        "Optional text/HTML file to open on startup. Pass - to read the document from stdin.",
+        "[file]");
 
     parser.process(app);
 
