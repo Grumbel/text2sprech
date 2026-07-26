@@ -34,10 +34,36 @@
         "type": "github"
       }
     },
+    "piper-voice-json": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-FJ6pRYkf/DFtUqdYQIrM0/sVUX0BSkwCdibQHeTt8lY=",
+        "type": "file",
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+      }
+    },
+    "piper-voice-onnx": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-gKmo0uNbsUDjKgS2+RoXqEAn65OUYjxEW8QUFAxvOu4=",
+        "type": "file",
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+      }
+    },
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "piper-voice-json": "piper-voice-json",
+        "piper-voice-onnx": "piper-voice-onnx"
       }
     },
     "systems": {

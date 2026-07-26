@@ -4,80 +4,125 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+
+    # Default voice (en_US-lessac-medium) from rhasspy/piper-voices v1.0.0.
+    # flake = false → plain file inputs; hashes land in flake.lock on
+    # `nix flake lock` / first build, so no manual fetchurl hashes here.
+    piper-voice-onnx = {
+      url = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx";
+      flake = false;
+    };
+    piper-voice-json = {
+      url = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, piper-voice-onnx, piper-voice-json }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        inherit (pkgs) lib;
+
+        piperVoiceName = "en_US-lessac-medium";
+
+        # Install the two flake-input files under share/piper/voices/ so the
+        # server can find ${name}.onnx + ${name}.onnx.json side by side.
+        piper-voice-en_US-lessac-medium = pkgs.stdenv.mkDerivation {
+          pname = "piper-voice-en_US-lessac-medium";
+          version = "1.0.0";
+          dontUnpack = true;
+          installPhase = ''
+            mkdir -p $out/share/piper/voices
+            cp ${piper-voice-onnx} $out/share/piper/voices/${piperVoiceName}.onnx
+            cp ${piper-voice-json} $out/share/piper/voices/${piperVoiceName}.onnx.json
+          '';
+          meta = with lib; {
+            description = "Piper TTS voice model: en_US-lessac-medium";
+            license = licenses.mit;
+            platforms = platforms.all;
+          };
+        };
 
         # --- Python side: piper-server -----------------------------------
         #
-        # IMPORTANT / KNOWN GAP: the `piper` TTS Python package is not
-        # reliably packaged in nixpkgs as of writing, and this sandbox has
-        # no network access to resolve a real fetchPypi/fetchurl hash for
-        # you right now. Two honest options, pick one before relying on
-        # real (non-silent-test) audio:
-        #
-        #   1. Quick path: let piper_server/server.py fall back to the
-        #      `piper` CLI binary (PiperCliBackend in synth.py). Install
-        #      the `piper-tts` CLI however you'd normally get it (pipx,
-        #      a release binary, etc.) outside this flake, and just make
-        #      sure it's on PATH inside `nix develop` via an impure shell
-        #      hook, or add it as a flake input once you have a working
-        #      fetchurl hash.
-        #
-        #   2. Proper path: vendor it as a Nix package once you can reach
-        #      the network -- e.g. `nix-prefetch-url` the wheel and add a
-        #      `python3Packages.buildPythonPackage` derivation here. Left
-        #      as a TODO rather than a fabricated hash that would silently
-        #      fail your first `nix build`.
+        # The `piper` TTS Python package is not reliably in nixpkgs; real
+        # audio still needs a `piper` CLI on PATH (PiperCliBackend) or a
+        # vendored Python package. Voice *models* are the flake inputs above.
         pythonEnv = pkgs.python3.withPackages (ps: [ ]);
-        # ^ intentionally empty: piper_server only uses the stdlib
-        #   (asyncio, wave, json, struct). Add ps.<pkg> here once you
-        #   vendor a real piper Python package (option 2 above).
 
-        piper-server = pkgs.stdenv.mkDerivation {
-          pname = "piper-server";
-          version = "0.1.0";
-          src = ./piper_server;
-          dontBuild = true;
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          installPhase = ''
-            mkdir -p $out/share/piper-server $out/bin
-            cp -r . $out/share/piper-server
-            makeWrapper ${pythonEnv}/bin/python3 $out/bin/piper-server \
-              --add-flags "$out/share/piper-server/server.py"
-          '';
-        };
+        mkPiperServer = { withDefaultVoice ? false }:
+          pkgs.stdenv.mkDerivation {
+            pname = if withDefaultVoice then "piper-server-full" else "piper-server";
+            version = "0.1.0";
+            src = ./piper_server;
+            dontBuild = true;
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            installPhase = ''
+              mkdir -p $out/share/piper-server $out/bin
+              cp -r . $out/share/piper-server
+              makeWrapper ${pythonEnv}/bin/python3 $out/bin/piper-server \
+                --add-flags "$out/share/piper-server/server.py" \
+                ${lib.optionalString withDefaultVoice ''
+                  --set TEXT2SPRECH_PIPER_MODELS "${piper-voice-en_US-lessac-medium}/share/piper/voices" \
+                  --add-flags "--default-voice ${piperVoiceName}"
+                ''}
+            '';
+            meta = with lib; {
+              description = "Unix-socket Piper TTS server for text2sprech"
+                + (if withDefaultVoice then " (bundled en_US-lessac-medium voice)" else "");
+              license = licenses.mit;
+              platforms = platforms.linux ++ platforms.darwin;
+            };
+          };
+
+        piper-server = mkPiperServer { withDefaultVoice = false; };
+        piper-server-full = mkPiperServer { withDefaultVoice = true; };
 
         # --- C++ side: the Qt6 app -----------------------------------------
-        text2sprech = pkgs.stdenv.mkDerivation {
-          pname = "text2sprech";
-          version = "0.1.0";
-          src = ./.;
-          nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.qt6.wrapQtAppsHook ];
-          buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtmultimedia ];
-          cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
-          # qtWrapperArgs is read by wrapQtAppsHook and appended to the
-          # generated wrapper script -- using this (rather than defining our
-          # own postFixup, which would clobber the hook's) is how nixpkgs
-          # expects extra environment tweaks to be added to a Qt app.
-          # This is what lets PiperServerManager's
-          # QStandardPaths::findExecutable("piper-server") succeed at
-          # runtime for an installed/packaged `text2sprech`.
-          qtWrapperArgs = [ "--prefix" "PATH" ":" "${piper-server}/bin" ];
-        };
+        mkText2sprech = { withDefaultVoice ? false }:
+          let
+            server = if withDefaultVoice then piper-server-full else piper-server;
+          in
+          pkgs.stdenv.mkDerivation {
+            pname = if withDefaultVoice then "text2sprech-full" else "text2sprech";
+            version = "0.1.0";
+            src = ./.;
+            nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.qt6.wrapQtAppsHook ];
+            buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtmultimedia ];
+            cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
+            qtWrapperArgs = [
+              "--prefix" "PATH" ":" "${server}/bin"
+            ] ++ lib.optionals withDefaultVoice [
+              "--set" "TEXT2SPRECH_PIPER_MODELS" "${piper-voice-en_US-lessac-medium}/share/piper/voices"
+            ];
+            meta = with lib; {
+              description = "Local TTS reader with live sentence highlighting"
+                + (if withDefaultVoice then " (bundled en_US-lessac-medium voice)" else "");
+              license = licenses.mit;
+              platforms = platforms.linux ++ platforms.darwin;
+              mainProgram = "text2sprech";
+            };
+          };
+
+        # Lean: no bundled voice (use ~/.local/share/piper/voices or env).
+        text2sprech = mkText2sprech { withDefaultVoice = false; };
+        # Full: ships en_US-lessac-medium and points the server at it.
+        text2sprech-full = mkText2sprech { withDefaultVoice = true; };
       in
       {
         packages = {
-          inherit text2sprech piper-server;
-          default = text2sprech;
+          inherit text2sprech text2sprech-full;
+          inherit piper-server piper-server-full;
+          inherit piper-voice-en_US-lessac-medium;
+          default = text2sprech-full;
         };
 
         apps = {
-          text2sprech = flake-utils.lib.mkApp { drv = text2sprech; exePath = "/bin/text2sprech"; };
+          text2sprech = flake-utils.lib.mkApp { drv = text2sprech-full; exePath = "/bin/text2sprech"; };
+          text2sprech-lean = flake-utils.lib.mkApp { drv = text2sprech; exePath = "/bin/text2sprech"; };
           piper-server = flake-utils.lib.mkApp { drv = piper-server; exePath = "/bin/piper-server"; };
+          piper-server-full = flake-utils.lib.mkApp { drv = piper-server-full; exePath = "/bin/piper-server"; };
           default = self.apps.${system}.text2sprech;
         };
 
@@ -88,16 +133,16 @@
             pkgs.pkg-config
             pkgs.qt6.qtbase
             pkgs.qt6.qtmultimedia
-            pkgs.qt6.qttools # for Qt Creator / IDE integration, debugging tools
+            pkgs.qt6.qttools
             pythonEnv
-            piper-server
+            piper-server-full
+            piper-voice-en_US-lessac-medium
           ];
           shellHook = ''
+            export TEXT2SPRECH_PIPER_MODELS="${piper-voice-en_US-lessac-medium}/share/piper/voices"
             echo "text2sprech dev shell: cmake -B build -G Ninja && cmake --build build && ./build/text2sprech"
-            echo "(piper-server is started automatically by text2sprech now -- see"
-            echo " src/speech/PiperServerManager.cpp -- but you can still run"
-            echo " it standalone: python3 piper_server/server.py --verbose)"
-            echo "(see PROTOCOL.md; note the piper-python-package gap noted in flake.nix)"
+            echo "Bundled voice models: $TEXT2SPRECH_PIPER_MODELS"
+            echo "Packages: nix build .#text2sprech-full  (default)  |  nix build .#text2sprech  (no model)"
           '';
         };
       });
