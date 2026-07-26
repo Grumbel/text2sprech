@@ -41,6 +41,32 @@ async def handle_speak(
 ) -> None:
     request_id = msg["id"]
     text = msg["text"]
+    if not session.backend.real_audio:
+        write_message(
+            writer,
+            {
+                "type": "error",
+                "id": request_id,
+                "message": (
+                    "No Piper TTS install available (silent-test backend). "
+                    "Install piper and voice models, then restart text2sprech."
+                ),
+            },
+        )
+        return
+    if session.voice not in session.backend.list_voices():
+        write_message(
+            writer,
+            {
+                "type": "error",
+                "id": request_id,
+                "message": (
+                    f"Voice model not found: {session.voice!r}. "
+                    "Choose another voice or install the matching .onnx files."
+                ),
+            },
+        )
+        return
     try:
         result = await session.backend.synthesize(text, session.voice, session.speed)
     except Exception as e:  # noqa: BLE001 - report all synth failures to the client
@@ -63,18 +89,48 @@ async def handle_speak(
     )
 
 
+def _ready_payload(backend: SynthBackend, default_voice: str) -> dict:
+    """Build the initial `ready` message, including whether real TTS audio
+    is available so the GUI can warn instead of looking broken."""
+    voices = backend.list_voices()
+    model_dir = str(backend.model_dir) if backend.model_dir is not None else ""
+    warning = ""
+    # Silent test backend: protocol works, but nothing is audible.
+    if not backend.real_audio:
+        warning = (
+            "No Piper TTS install found — audio is silent. "
+            "Install the piper CLI or Python package, and place .onnx voice "
+            f"models in {model_dir or '~/.local/share/piper/voices'}."
+        )
+    elif not voices:
+        warning = (
+            "Piper is installed but no voice models were found"
+            + (f" in {model_dir}" if model_dir else "")
+            + ". Download .onnx voices (e.g. en_US-lessac-medium) into that directory."
+        )
+    # Prefer a voice that actually exists; fall back to the configured default.
+    voice = default_voice if default_voice in voices else (voices[0] if voices else default_voice)
+    return {
+        "type": "ready",
+        "voices": voices,
+        "voice": voice,
+        "backend": backend.name,
+        "audio": bool(backend.real_audio and voices),
+        "model_dir": model_dir,
+        "warning": warning,
+    }
+
+
 async def handle_connection(
     reader: asyncio.StreamReader, writer: asyncio.StreamWriter, backend: SynthBackend, default_voice: str
 ) -> None:
     peer = writer.get_extra_info("peername") or "unix-client"
     log.info("client connected: %s", peer)
-    session = Session(backend, default_voice)
+    ready = _ready_payload(backend, default_voice)
+    session = Session(backend, ready["voice"])
     in_flight: set[asyncio.Task] = set()
 
-    write_message(
-        writer,
-        {"type": "ready", "voices": backend.list_voices(), "voice": session.voice},
-    )
+    write_message(writer, ready)
 
     try:
         while True:

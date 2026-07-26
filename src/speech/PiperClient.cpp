@@ -122,11 +122,23 @@ void PiperClient::dispatchMessage(const QJsonObject &msg)
 {
     const QString type = msg.value("type").toString();
     if (type == "ready") {
-        QStringList voices;
+        PiperServerInfo info;
         for (const auto &v : msg.value("voices").toArray()) {
-            voices << v.toString();
+            info.voices << v.toString();
         }
-        emit ready(voices, msg.value("voice").toString());
+        info.currentVoice = msg.value("voice").toString();
+        info.backend = msg.value("backend").toString();
+        info.modelDir = msg.value("model_dir").toString();
+        info.warning = msg.value("warning").toString();
+        // Older servers omit "audio"; infer from backend name / voices.
+        if (msg.contains(QStringLiteral("audio"))) {
+            info.realAudio = msg.value("audio").toBool();
+        } else if (info.backend == QLatin1String("silent-test")) {
+            info.realAudio = false;
+        } else {
+            info.realAudio = !info.voices.isEmpty();
+        }
+        emit ready(info);
     } else if (type == "audio") {
         int id = msg.value("id").toInt();
         int sampleRate = msg.value("sample_rate").toInt();

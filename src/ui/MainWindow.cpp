@@ -112,10 +112,12 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     setUpUi();
     setUpShortcuts();
 
-    connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onVoiceListReady);
-    connect(m_piperClient, &PiperClient::ready, this, [this] {
+    connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onServerReady);
+    connect(m_piperClient, &PiperClient::ready, this, [this](const PiperServerInfo &info) {
         m_connectAttemptsLeft = 0; // successfully connected; stop treating further errors as retryable
-        setActivity(tr("Ready"));
+        if (info.realAudio) {
+            setActivity(tr("Ready"));
+        }
         // Deferred (rather than opened immediately in main()) because the
         // socket connect is asynchronous -- opening it before the event
         // loop has even started would mean autoplay tries to speak before
@@ -134,7 +136,17 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         }
         qWarning().noquote() << "Piper connection error:" << msg;
         setActivity(tr("Piper connection failed"));
-        statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 5000);
+        setPlaybackEnabled(false);
+        setAudioWarning(tr("Cannot connect to piper-server: %1").arg(msg));
+        statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 8000);
+    });
+    connect(m_piperClient, &PiperClient::disconnected, this, [this] {
+        if (m_connectAttemptsLeft > 0) {
+            return; // still in the startup retry window
+        }
+        setPlaybackEnabled(false);
+        setActivity(tr("Disconnected"));
+        setAudioWarning(tr("Lost connection to piper-server."));
     });
     connect(m_playback, &PlaybackController::sentenceStarted, this, &MainWindow::onSentenceStarted);
     connect(m_playback, &PlaybackController::preparingAudio, this, &MainWindow::onPreparingAudio);
@@ -163,16 +175,24 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         connect(m_piperServerManager, &PiperServerManager::failedToStart, this, [this](const QString &reason) {
             qWarning().noquote() << reason;
             setActivity(tr("Piper server unavailable"));
+            setPlaybackEnabled(false);
+            setAudioWarning(reason);
             statusBar()->showMessage(reason, 8000);
         });
         socketPath = m_piperServerManager->startWithUniqueSocket();
         if (!socketPath.isEmpty()) {
             qInfo().noquote() << "Spawned piper-server on" << socketPath;
+        } else {
+            // failedToStart already emitted; nothing further to connect to.
         }
     }
 
     if (!socketPath.isEmpty()) {
         connectToPiperServer(socketPath);
+    } else if (!m_options.piperSocket.isEmpty()) {
+        // External socket path was empty string somehow — treat as error.
+        setPlaybackEnabled(false);
+        setAudioWarning(tr("No piper-server socket path configured."));
     }
 
     refreshProgress(); // initializes to "No document loaded"
@@ -236,11 +256,28 @@ void MainWindow::setUpUi()
 {
     setAcceptDrops(true);
 
-    // Central column: document on top, media-player transport bar below.
+    // Central column: optional audio warning, document, media-player bar.
     auto *central = new QWidget(this);
     auto *centralLayout = new QVBoxLayout(central);
     centralLayout->setContentsMargins(0, 0, 0, 0);
     centralLayout->setSpacing(0);
+
+    m_warningBanner = new QLabel(central);
+    m_warningBanner->setObjectName(QStringLiteral("audioWarningBanner"));
+    m_warningBanner->setWordWrap(true);
+    m_warningBanner->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_warningBanner->setContentsMargins(12, 8, 12, 8);
+    m_warningBanner->setVisible(false);
+    // Inline style scoped to this widget only (avoids the dialog-wide
+    // stylesheet palette pitfall noted in PreferencesDialog).
+    m_warningBanner->setStyleSheet(
+        QStringLiteral("QLabel#audioWarningBanner {"
+                       "  background-color: #5c3b00;"
+                       "  color: #fff3d0;"
+                       "  border-bottom: 1px solid #8a5a00;"
+                       "  padding: 6px 12px;"
+                       "}"));
+    centralLayout->addWidget(m_warningBanner);
     centralLayout->addWidget(m_documentView, /*stretch=*/1);
 
     // --- Top toolbar: document → speech → reading aids → settings ----------
@@ -717,11 +754,18 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
         setWindowTitle(tr("text2sprech"));
     }
 
-    if (m_options.autoplay && !m_sentences.isEmpty()) {
+    if (m_options.autoplay && !m_sentences.isEmpty() && m_realAudioAvailable
+        && m_piperClient->isConnected()) {
         m_playback->play();
         setPlayingUi(true);
     } else {
         setPlayingUi(false);
+        if (m_options.autoplay && !m_realAudioAvailable) {
+            statusBar()->showMessage(
+                tr("Loaded %1 sentences — autoplay skipped (no TTS audio)").arg(m_sentences.size()),
+                5000);
+            return;
+        }
     }
     statusBar()->showMessage(tr("Loaded %1 sentences").arg(m_sentences.size()), 3000);
 }
@@ -766,12 +810,21 @@ void MainWindow::togglePlayPause()
         // "stopped/selected" color so it no longer looks actively speaking.
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setActivity(tr("Paused"));
-    } else {
-        m_playback->play();
-        setPlayingUi(true);
-        // play() will emit preparingAudio / sentenceStarted, which recolor
-        // the highlight; no need to force a state here.
+        return;
     }
+    if (!m_realAudioAvailable) {
+        statusBar()->showMessage(
+            tr("Cannot play: Piper TTS audio is not available. See the warning above."), 6000);
+        return;
+    }
+    if (!m_piperClient->isConnected()) {
+        statusBar()->showMessage(tr("Cannot play: not connected to piper-server."), 6000);
+        return;
+    }
+    m_playback->play();
+    setPlayingUi(true);
+    // play() will emit preparingAudio / sentenceStarted, which recolor
+    // the highlight; no need to force a state here.
 }
 
 void MainWindow::setPlayingUi(bool playing)
@@ -842,30 +895,33 @@ void MainWindow::jumpToSentence(int index)
     }
 }
 
-void MainWindow::onVoiceListReady(const QStringList &voices, const QString &current)
+void MainWindow::onServerReady(const PiperServerInfo &info)
 {
-    m_knownVoices = voices;
+    m_knownVoices = info.voices;
+    m_realAudioAvailable = info.realAudio;
 
-    QString selected = current;
+    QString selected = info.currentVoice;
     if (!m_options.voice.isEmpty()) {
-        if (voices.contains(m_options.voice)) {
+        if (info.voices.contains(m_options.voice)) {
             selected = m_options.voice;
         } else {
             qWarning().noquote() << "Requested --voice" << m_options.voice
-                                  << "not available on server; using default" << current;
+                                  << "not available on server; using default" << info.currentVoice;
+            statusBar()->showMessage(
+                tr("Voice “%1” not found; using “%2”").arg(m_options.voice, info.currentVoice), 5000);
         }
     }
 
     m_voiceCombo->blockSignals(true);
     m_voiceCombo->clear();
-    m_voiceCombo->addItems(voices);
-    int idx = voices.indexOf(selected);
+    m_voiceCombo->addItems(info.voices);
+    int idx = info.voices.indexOf(selected);
     if (idx >= 0) {
         m_voiceCombo->setCurrentIndex(idx);
     }
     m_voiceCombo->blockSignals(false);
 
-    if (selected != current) {
+    if (!selected.isEmpty() && selected != info.currentVoice) {
         m_playback->setVoice(selected);
     }
     // Speed was set on the spin box during setUpUi() before we were
@@ -873,7 +929,24 @@ void MainWindow::onVoiceListReady(const QStringList &voices, const QString &curr
     // now that the connection is live.
     m_playback->setSpeed(m_options.speed);
 
-    statusBar()->showMessage(tr("Connected to piper-server (%1 voices)").arg(voices.size()), 3000);
+    if (!info.realAudio) {
+        const QString warning = !info.warning.isEmpty()
+            ? info.warning
+            : tr("No real TTS audio available (backend: %1).").arg(
+                  info.backend.isEmpty() ? tr("unknown") : info.backend);
+        setAudioWarning(warning);
+        setPlaybackEnabled(false);
+        setActivity(tr("No audio"));
+        qWarning().noquote() << warning;
+        statusBar()->showMessage(warning, 10000);
+        return;
+    }
+
+    setAudioWarning(QString());
+    setPlaybackEnabled(true);
+    const QString backendLabel = info.backend.isEmpty() ? tr("piper") : info.backend;
+    statusBar()->showMessage(
+        tr("Connected (%1, %2 voice(s))").arg(backendLabel).arg(info.voices.size()), 4000);
 }
 
 void MainWindow::onSpeedChanged(double speed)
@@ -885,7 +958,40 @@ void MainWindow::onSpeedChanged(double speed)
 void MainWindow::onPlaybackError(const QString &message)
 {
     qWarning().noquote() << message;
-    statusBar()->showMessage(message, 5000);
+    setActivity(tr("Synthesis error"));
+    statusBar()->showMessage(message, 8000);
+}
+
+void MainWindow::setAudioWarning(const QString &message)
+{
+    if (!m_warningBanner) {
+        return;
+    }
+    if (message.isEmpty()) {
+        m_warningBanner->clear();
+        m_warningBanner->setVisible(false);
+        return;
+    }
+    m_warningBanner->setText(message);
+    m_warningBanner->setVisible(true);
+}
+
+void MainWindow::setPlaybackEnabled(bool enabled)
+{
+    if (m_playPauseAction) {
+        m_playPauseAction->setEnabled(enabled);
+    }
+    if (m_progressSlider) {
+        // Keep the slider usable for navigation even without audio.
+        m_progressSlider->setEnabled(m_progressSlider->maximum() > 0);
+    }
+    if (m_voiceCombo) {
+        m_voiceCombo->setEnabled(enabled && m_voiceCombo->count() > 0);
+    }
+    if (!enabled && m_playback && m_playback->isPlaying()) {
+        m_playback->stop();
+        setPlayingUi(false);
+    }
 }
 
 void MainWindow::openPreferences()

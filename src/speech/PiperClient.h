@@ -16,6 +16,15 @@
 // the sentence queue -- that's PlaybackController's job. Keeping the two
 // separate means the wire protocol can be tested (see tests/) without a
 // QApplication event loop pulling in Qt Multimedia.
+struct PiperServerInfo {
+    QStringList voices;
+    QString currentVoice;
+    QString backend;   // piper-python | piper-cli | silent-test (may be empty on old servers)
+    bool realAudio = true; // false => silent-test or no models; do not pretend TTS works
+    QString modelDir;
+    QString warning;   // non-empty human message when audio is unusable
+};
+
 class PiperClient : public QObject {
     Q_OBJECT
 public:
@@ -35,7 +44,7 @@ public:
     void requestVoiceList();
 
 signals:
-    void ready(const QStringList &voices, const QString &currentVoice);
+    void ready(const PiperServerInfo &info);
     // sampleRate in Hz, wavData is a complete RIFF/WAV byte buffer for one sentence
     void audioReady(int id, int sampleRate, const QByteArray &wavData);
     void synthesisError(int id, const QString &message);

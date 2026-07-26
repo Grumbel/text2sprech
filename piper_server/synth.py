@@ -58,6 +58,10 @@ def _silent_wav(sample_rate: int = 22050, duration_s: float = 0.05) -> bytes:
 
 class SynthBackend(abc.ABC):
     name: str = "abstract"
+    # False for SilentTestBackend — GUI uses this to warn that nothing will
+    # be audible even though the protocol still works end-to-end.
+    real_audio: bool = True
+    model_dir: Path | None = None
 
     @abc.abstractmethod
     async def synthesize(self, text: str, voice: str, speed: float) -> SynthResult:
@@ -77,12 +81,14 @@ class PiperPythonBackend(SynthBackend):
     """
 
     name = "piper-python"
+    real_audio = True
 
     def __init__(self, model_dir: Path):
         from piper.voice import PiperVoice  # type: ignore  # noqa: F401
 
         self._PiperVoice = PiperVoice
         self._model_dir = model_dir
+        self.model_dir = model_dir
         self._voices: dict[str, "PiperVoice"] = {}
 
     def _load(self, voice: str):
@@ -117,12 +123,14 @@ class PiperCliBackend(SynthBackend):
     """Shells out to the `piper` binary. More portable, slightly higher latency."""
 
     name = "piper-cli"
+    real_audio = True
 
     def __init__(self, model_dir: Path, binary: str = "piper"):
         if shutil.which(binary) is None:
             raise FileNotFoundError(f"'{binary}' not found on PATH")
         self._binary = binary
         self._model_dir = model_dir
+        self.model_dir = model_dir
 
     async def synthesize(self, text: str, voice: str, speed: float) -> SynthResult:
         model_path = self._model_dir / f"{voice}.onnx"
@@ -179,11 +187,14 @@ class SilentTestBackend(SynthBackend):
     Exists so the server, protocol, and client plumbing can be exercised
     end-to-end (including in this sandbox, which has no Piper install and
     no network to fetch models) without pretending real audio came out.
+    The GUI must treat real_audio=False as "not usable for listening".
     """
 
     name = "silent-test"
+    real_audio = False
 
-    def __init__(self):
+    def __init__(self, model_dir: Path | None = None):
+        self.model_dir = model_dir
         self._voices = ["test-voice-a", "test-voice-b"]
 
     async def synthesize(self, text: str, voice: str, speed: float) -> SynthResult:
@@ -213,4 +224,4 @@ def select_backend(model_dir: Path) -> SynthBackend:
         return PiperCliBackend(model_dir)
     except FileNotFoundError:
         pass
-    return SilentTestBackend()
+    return SilentTestBackend(model_dir)

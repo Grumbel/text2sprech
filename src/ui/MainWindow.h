@@ -10,6 +10,7 @@
 class PiperClient;
 class PiperServerManager;
 class PlaybackController;
+struct PiperServerInfo;
 class QComboBox;
 class QDoubleSpinBox;
 class QAction;
@@ -63,7 +64,7 @@ private slots:
     void onSentenceStarted(int sentenceId, int start, int end);
     void onPreparingAudio(int sentenceId);
     void onDocumentClicked(int plainTextOffset);
-    void onVoiceListReady(const QStringList &voices, const QString &current);
+    void onServerReady(const PiperServerInfo &info);
     void onSpeedChanged(double speed);
     void onPlaybackError(const QString &message);
     // Opens PreferencesDialog seeded from the config-file defaults.
@@ -105,6 +106,10 @@ private:
     int sentenceIndexForWordOffset(int wordOffset) const;
     // User interacted with the progress slider (click or release after drag).
     void onProgressSliderCommitted(int wordOffset);
+    // Persistent warning strip under the toolbar (no Piper / no models /
+    // connection failure). Empty message hides it.
+    void setAudioWarning(const QString &message);
+    void setPlaybackEnabled(bool enabled);
 
     // --- Recent files + per-document reading position -------------------------
     // Canonical path of the file currently loaded, or empty for paste /
@@ -138,11 +143,13 @@ private:
     QAction *m_playPauseAction;
     QAction *m_openAction = nullptr;
     QMenu *m_recentMenu = nullptr;
+    QLabel *m_warningBanner = nullptr; // hidden unless Piper/audio is unusable
     QLabel *m_activityLabel;     // left/normal status bar area: current activity
     QSlider *m_progressSlider;   // word-based position through the document
     QLabel *m_elapsedLabel;      // estimated listening time so far
     QLabel *m_remainingLabel;    // estimated listening time left (−m:ss)
     QLabel *m_sentenceLabel;     // "sentence N / M"
+    bool m_realAudioAvailable = false;
 
     QVector<Sentence> m_sentences;
     bool m_startupContentLoaded = false;

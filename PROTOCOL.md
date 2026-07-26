@@ -34,12 +34,23 @@ for v1 simplicity; see "Future work" below).
 ## Server -> Client messages
 
 ```jsonc
-{"type": "ready", "voices": ["en_US-lessac-medium", ...], "voice": "en_US-lessac-medium"}
+{
+  "type": "ready",
+  "voices": ["en_US-lessac-medium", ...],
+  "voice": "en_US-lessac-medium",
+  "backend": "piper-cli",          // piper-python | piper-cli | silent-test
+  "audio": true,                   // false when silent-test or no models found
+  "model_dir": "/path/to/voices",  // may be ""
+  "warning": ""                    // non-empty human message when audio is unusable
+}
 {"type": "audio", "id": 123, "format": "wav", "sample_rate": 22050, "data": "<base64 wav bytes>"}
 {"type": "error", "id": 123, "message": "..."}
 {"type": "voices", "voices": [...]}
 {"type": "ack", "for": "set_voice", "voice": "en_US-lessac-medium"}
 ```
+
+Clients should treat `audio: false` (or a non-empty `warning`) as “not ready
+for listening” and surface that in the UI rather than playing silent WAVs.
 
 ## Notes / rationale
 
