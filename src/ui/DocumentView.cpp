@@ -1,5 +1,7 @@
 #include "DocumentView.h"
 
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QRect>
@@ -11,12 +13,12 @@ DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
 {
     setReadOnly(true);
     setLineWrapMode(QTextEdit::WidgetWidth);
+    m_baseFont = font(); // whatever the platform/style default is, until setBaseFont() is called
 }
 
 void DocumentView::loadPlainText(const QString &text)
 {
     setPlainText(text);
-    reapplyZoom();
 }
 
 void DocumentView::loadHtml(const QString &html)
@@ -26,39 +28,40 @@ void DocumentView::loadHtml(const QString &html)
     // is not a full browser engine -- CSS layout features like flexbox/grid
     // are not supported. Fine for the "headings/paragraphs/emphasis/line
     // breaks" scope in the proposal; flag it if richer HTML shows up.
+    //
+    // TODO(HTML cleanup, deferred): pasted/opened HTML can carry font-size,
+    // font-family, and other inline styling that makes no sense for a
+    // text-to-speech reader (and fights with the user's own font choice
+    // here). Worth narrowing to a genuinely minimal subset before this --
+    // structural tags like headings are useful signal (e.g. a chapter-
+    // change chime), but styling isn't. Not done yet; flagged for later.
     setHtml(html);
-    reapplyZoom();
 }
 
-void DocumentView::reapplyZoom()
+void DocumentView::setBaseFont(const QFont &font)
 {
-    // zoomIn/zoomOut scale the font sizes of text already in the document
-    // at the time they're called -- they don't affect content inserted
-    // afterwards. So switching documents resets to the un-zoomed size
-    // unless we explicitly reapply the accumulated zoom here.
-    if (m_zoomSteps != 0) {
-        zoomIn(m_zoomSteps);
-    }
+    m_baseFont = font;
+    // setDefaultFont() (not zoomIn/zoomOut) because it's a property of the
+    // QTextDocument itself: it persists across loadPlainText()/loadHtml()
+    // calls (they reuse this same QTextDocument, never replace it) and
+    // applies live to any plain/unstyled text immediately, with no need to
+    // reapply it after every load the way the old zoom-step approach did.
+    document()->setDefaultFont(font);
+    setFont(font);
 }
 
 void DocumentView::increaseTextSize()
 {
-    zoomIn(1);
-    ++m_zoomSteps;
+    QFont f = m_baseFont;
+    f.setPointSize(f.pointSize() + 1);
+    setBaseFont(f);
 }
 
 void DocumentView::decreaseTextSize()
 {
-    zoomIn(-1);
-    --m_zoomSteps;
-}
-
-void DocumentView::resetTextSize()
-{
-    if (m_zoomSteps != 0) {
-        zoomIn(-m_zoomSteps);
-        m_zoomSteps = 0;
-    }
+    QFont f = m_baseFont;
+    f.setPointSize(qMax(1, f.pointSize() - 1));
+    setBaseFont(f);
 }
 
 void DocumentView::setSentenceBoundaries(const QVector<Sentence> &sentences)
@@ -141,7 +144,14 @@ void DocumentView::highlightRange(int start, int end)
     // nudging it into view at an edge (what ensureCursorVisible() alone
     // does) -- keeps the active sentence in a stable, comfortable reading
     // position as playback scrolls through a long document.
-    setTextCursor(cursor);
+    //
+    // Deliberately does NOT call setTextCursor(cursor) here: giving the
+    // widget itself a real selection (anchor != position) makes Qt paint
+    // its own native selection -- palette Highlight/HighlightedText, i.e.
+    // exactly the blue-background/white-text this highlight scheme exists
+    // to avoid -- on top of our ExtraSelection. cursorRect() works on any
+    // cursor, not just the widget's actual one, so centering doesn't need
+    // to touch real cursor/selection state at all.
     centerCursor(cursor);
 }
 
@@ -156,7 +166,48 @@ void DocumentView::centerCursor(const QTextCursor &cursor)
 
 void DocumentView::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::MiddleButton) {
+        // X11/Wayland convention: middle-click pastes the primary
+        // selection at the click point. This view only ever shows one
+        // whole document, so "paste" means "load this as the new
+        // document" -- not an insert -- and doesn't depend on where
+        // exactly the click landed.
+        emit pasteRequested(QClipboard::Selection);
+        event->accept();
+        return;
+    }
     QTextEdit::mousePressEvent(event);
     QTextCursor cursor = cursorForPosition(event->pos());
     emit positionClicked(cursor.position());
+}
+
+void DocumentView::keyPressEvent(QKeyEvent *event)
+{
+    // Must intercept here, before QTextEdit::keyPressEvent(): plain arrow
+    // keys are handled directly by the focused widget rather than going
+    // through the app-level QAction shortcut system, so a MainWindow-level
+    // shortcut for Key_Left/Key_Right would silently lose to QTextEdit's
+    // own character-cursor movement whenever this widget has focus (which
+    // is most of the time, right after clicking in the document).
+    if (event->modifiers() == Qt::NoModifier) {
+        if (event->key() == Qt::Key_Left) {
+            emit previousSentenceRequested();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Right) {
+            emit nextSentenceRequested();
+            event->accept();
+            return;
+        }
+    }
+    if (event->matches(QKeySequence::Paste)) {
+        // QTextEdit would otherwise just silently do nothing here since
+        // the widget is read-only -- intercept and treat it the same as
+        // the toolbar's "Paste Clipboard" button.
+        emit pasteRequested(QClipboard::Clipboard);
+        event->accept();
+        return;
+    }
+    QTextEdit::keyPressEvent(event);
 }

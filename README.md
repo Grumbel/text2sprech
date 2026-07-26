@@ -16,7 +16,7 @@ access**, so here's the honest breakdown:
 | `piper_server/` (Python) | **Tested end-to-end** — server + protocol framing + a real socket client, see below. Uses a `SilentTestBackend` (silent WAVs) because no Piper install/models are available in this sandbox; falls back automatically to a real Piper CLI or Python backend if either is present on your machine. |
 | `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials, newline-forced breaks, blank-line paragraph breaks, max-length subdivision (both a whitespace-breakable long run and a hard, unbreakable one), and dropping punctuation/symbol-only junk segments. |
 | `synth.py`'s `PiperCliBackend` fallback behavior | **Tested** against a fake `piper` binary reproducing the real crash: confirmed unspeakable text is pre-filtered without invoking the CLI at all, confirmed the CLI-crash-despite-passing-the-filter case degrades to silence with a logged warning rather than raising, and confirmed a genuinely different failure (missing voice model) still raises normally. |
-| C++ (`src/`, `tests/`) | **Written but not compiled** — no Qt6/CMake toolchain available here. `SentenceSplitter.cpp` mirrors the tested Python logic; `tests/test_sentence_splitter.cpp` exists so you can verify it the moment you build. `PiperServerManager` (spawns/stops the server, unique per-instance socket) and the CLI options are new and also unverified by a compiler yet. Everything else (PiperClient, PlaybackController, DocumentView, MainWindow) is unverified by a compiler — expect the normal first-build friction (a missed include, a signal/slot signature mismatch) rather than fundamental design bugs, since the interfaces were kept deliberately small and single-purpose. |
+| C++ (`src/`, `tests/`) | **Written but not compiled** — no Qt6/CMake toolchain available here. `SentenceSplitter.cpp` mirrors the tested Python logic; `tests/test_sentence_splitter.cpp` exists so you can verify it the moment you build. `PiperServerManager` (spawns/stops the server, unique per-instance socket), `PreferencesDialog`, and the CLI options are new and also unverified by a compiler yet. Everything else (PiperClient, PlaybackController, DocumentView, MainWindow) is unverified by a compiler — expect the normal first-build friction (a missed include, a signal/slot signature mismatch) rather than fundamental design bugs, since the interfaces were kept deliberately small and single-purpose. |
 | `resources/` (icon, `.qrc`, `.desktop`) | **Not verified visually** — no display/desktop environment in this sandbox to confirm the icon actually renders in a taskbar or app menu, or that the `.desktop` file's `Exec`/`Icon` fields resolve correctly once installed. The `.qrc` path (`:/icons/text2sprech.png`) and file structure follow standard Qt/freedesktop.org conventions, but worth a visual check after your first `cmake --install` or `nix build`. |
 | `flake.nix` | **Not built** — no network here to fetch nixpkgs. There's one known real gap: the Piper Python package isn't reliably in nixpkgs, so `piper_server`'s empty `pythonEnv` relies on the CLI-binary fallback in `synth.py` unless you vendor a real package (flake.nix has a TODO with the two concrete options). |
 
@@ -77,27 +77,37 @@ Example attaching to your own server: start `python3 piper_server/server.py
 
 The toolbar has separate "Paste Clipboard" and "Paste Selection" buttons
 (the latter disabled with a tooltip on platforms without primary-selection
-support, i.e. Windows/macOS).
+support, i.e. Windows/macOS). The document view also supports **Ctrl+V**
+(pastes clipboard) and **middle-click** (pastes the primary selection, the
+X11/Wayland convention) directly -- both replace the whole document, the
+same as the toolbar buttons, since this is a single-document read-only
+view rather than a text box you type into.
 
 ### Config file
 
-Defaults for voice, speed, and text zoom level can be set at (Linux)
+Defaults for voice, speed, and font (family + point size) live at (Linux)
 `~/.config/text2sprech/text2sprech.ini` (a plain text file, forced to that format on
 every platform rather than the Windows registry or macOS plist QSettings
-would otherwise use) so you don't have to pass the same CLI flags every
-time. CLI flags always override the config file when given.
+would otherwise use). **The Preferences dialog (toolbar button) is the
+only thing that writes to this file.** CLI flags (`--voice`, `--speed`)
+and the regular toolbar controls (voice combo, speed spinbox, A-/A+) are
+session-only by design -- they override the config file's defaults for
+the current run but never modify it. Only saving via Preferences persists
+a change for next time. CLI flags still win over the config file for the
+current session when given.
 
 ```ini
 [general]
 voice=en_US-lessac-medium
 speed=1.25
-textZoomSteps=2
+fontFamily=Noto Sans
+fontPointSize=13
 ```
 
-`textZoomSteps` is the net number of `DocumentView::increaseTextSize()`
-steps to apply on startup (negative to start smaller); there's no CLI flag
-for it, config-file only for now. Invalid values (out of range, wrong type)
-are ignored with a warning printed to stderr, falling back to the default.
+`fontFamily` empty or absent leaves the widget's platform-default family
+alone; `fontPointSize` <= 0 or absent leaves its default size alone.
+Invalid `fontPointSize` values (outside 6-72, wrong type) are ignored with
+a warning printed to stderr, falling back to the default.
 
 Or via the flake, once you can reach the network to resolve nixpkgs:
 
@@ -128,7 +138,8 @@ text2sprech/
 │   ├── main.cpp
 │   ├── ui/
 │   │   ├── MainWindow.{h,cpp}
-│   │   └── DocumentView.{h,cpp}
+│   │   ├── DocumentView.{h,cpp}
+│   │   └── PreferencesDialog.{h,cpp}
 │   ├── document/
 │   │   ├── Sentence.h
 │   │   └── SentenceSplitter.{h,cpp}   # C++ port of the tested Python logic
@@ -171,12 +182,17 @@ text2sprech/
 - **Clicking a sentence highlights it immediately**, independent of
   playback state -- previously the highlight only appeared once audio
   actually started, so clicking while paused looked like it did nothing.
-- **Text size** is adjustable via toolbar buttons or Ctrl+=/Ctrl+-/Ctrl+0,
-  using `QTextEdit::zoomIn`/`zoomOut` (which scales all font sizes
-  proportionally, so HTML headings stay bigger than body text). The
-  cumulative zoom level is reapplied automatically whenever a new document
-  is loaded, since zoom only affects text already in the document at the
-  time it's called.
+- **Text size** started as `QTextEdit::zoomIn`/`zoomOut`-based relative
+  zoom, then got replaced with a real font family + point size
+  (`DocumentView::setBaseFont()`, applied via `QTextDocument::
+  setDefaultFont()`) -- see the Preferences dialog note below for why.
+  Toolbar A-/A+ (and Ctrl++/Ctrl+-) now do quick ±1pt adjustments on the
+  actual point size rather than an abstract zoom step; there's no
+  "reset" shortcut anymore since there's no longer a single well-defined
+  "zero" to reset to; open Preferences to set an exact size instead.
+  `setDefaultFont()` persists across `loadPlainText()`/`loadHtml()` calls
+  (they reuse the same `QTextDocument`, never replace it), so unlike the
+  old zoom approach this doesn't need to be reapplied after every load.
 - **Switching voices used to "stick" with the old voice for a sentence or
   two.** The bug: the voice combo was wired directly to `PiperClient`,
   which only updates the server's voice for *future* `speak` requests --
@@ -189,14 +205,102 @@ text2sprech/
 - **HTML rendering relies on Qt's built-in subset** (`QTextDocument::setHtml`),
   which covers headings/paragraphs/emphasis/line breaks as scoped, but is
   not a full browser engine.
-- **Active-sentence highlight is now a fixed amber background with
-  near-black text**, not the default `palette().highlight()`/
-  `highlightedText()` (blue/white), which was hard to read -- especially
-  layered over the yellow tint stripes underneath.
+- **Active-sentence highlight is a fixed amber background with near-black
+  text**, not the default `palette().highlight()`/`highlightedText()`
+  (blue/white), which was hard to read. The first attempt at this fix
+  still showed blue/white despite setting those colors on the
+  `ExtraSelection` -- the actual bug was that `highlightRange()` also
+  called `setTextCursor()` with that same range as a real selection
+  (anchor != position), and Qt paints the widget's *native* selection
+  (always palette Highlight/HighlightedText) on top of `ExtraSelection`s
+  regardless of their configured colors. Fixed by never giving the widget
+  a real selection at all -- `cursorRect()` works on any cursor, not just
+  the widget's actual one, so centering doesn't need one either.
 - **Auto-scroll centers the active sentence** in the viewport
   (`DocumentView::centerCursor()`, computed from `cursorRect()` and the
   vertical scrollbar) rather than just nudging it into view at an edge,
   which is all the default `ensureCursorVisible()` does.
+- **Cursor-key sentence navigation** (Left/Right) is handled directly in
+  `DocumentView::keyPressEvent()`, not as app-level `QAction` shortcuts.
+  Plain arrow keys are consumed by whichever widget has focus before
+  reaching the shortcut system, so a `QAction` shortcut for `Key_Left` on
+  `MainWindow` silently loses to `QTextEdit`'s own character-cursor
+  movement whenever the document has focus -- which is most of the time.
+  Repurposing the keys entirely in `DocumentView` (this is a read-only
+  reader, not an editor, so fine-grained character-cursor movement isn't
+  needed) and having it emit `previousSentenceRequested()`/
+  `nextSentenceRequested()` instead reaches `MainWindow`'s new shared
+  `jumpToSentence()` reliably. That same helper backs click-to-jump too,
+  so both paths highlight immediately, update the position label, and seek
+  playback the same way.
+- **Toolbar cleanup**: Previous/Next sentence buttons and the "Reset size"
+  button were dropped since the same functionality is already reachable
+  elsewhere (clicking any sentence or the arrow keys; an exact size is one
+  Preferences dialog away). Added a "Voice:" label since the combo box
+  didn't otherwise say what it was for. ("Paste Clipboard"/"Paste
+  Selection" were briefly combined into one grouped button and then
+  reverted back to two separate ones on request.)
+- **Preferences dialog** (`src/ui/PreferencesDialog`, opened via the
+  toolbar's "Preferences…" button) is the only place in the app that writes
+  to the config file. It's seeded with the live session's current
+  voice/speed/font so opening it and hitting Save with no changes just
+  persists whatever's already in effect; hitting Save also applies the
+  chosen values live via the same session-only code paths the toolbar
+  controls themselves use (`QComboBox::setCurrentText`,
+  `QDoubleSpinBox::setValue`, `DocumentView::setBaseFont`) -- persistence
+  itself happens as one explicit extra step afterwards, kept deliberately
+  separate from those live-apply paths so nothing else in the app can
+  accidentally write to the config file. Three follow-up fixes after the
+  first pass:
+  - **Font/size instead of zoom.** The dialog originally exposed the same
+    abstract "zoom step" integer `DocumentView` tracked internally, which
+    was both a confusing unit to show a user (a bare `0` doesn't read as
+    "normal size" without added context) and the wrong level of control --
+    asked for directly, this became a real `QFontComboBox` (family, with
+    each entry previewed in its own typeface) plus a point-size `QSpinBox`,
+    combined into one "Font:" row. `DocumentView::setBaseFont()` applies
+    this via `QTextDocument::setDefaultFont()` rather than `zoomIn`/
+    `zoomOut` -- a real document property that persists across
+    `loadPlainText()`/`loadHtml()` calls on its own, unlike the old
+    zoom-step approach which needed explicit reapplication after every
+    load. The config file's `textZoomSteps` key became `fontFamily` +
+    `fontPointSize`.
+  - **Unreadable text** (white on light grey) turned out to be a known Qt
+    gotcha: the muted note label under the fields used `setStyleSheet()`,
+    and applying a stylesheet to even one widget in a dialog can push Qt
+    onto its CSS-based style engine for that (and sometimes sibling)
+    widgets instead of the native platform style -- which is what produced
+    the mismatched, barely-readable color combination. Replaced with plain
+    `QFont`-based styling (smaller point size, italic), which doesn't touch
+    palette resolution at all.
+  - **Cramped fields**, still an issue after a first attempt at
+    `setMinimumWidth()` alone: widgets now also get an explicit
+    `QSizePolicy::Expanding` horizontally, and the font family + size share
+    one row via a small `QWidget` wrapper (a `QHBoxLayout` added to
+    `QFormLayout` directly as a field, rather than as a raw layout, doesn't
+    reliably pick up the form's field-growth policy in the way a plain
+    widget does) -- that combination is what actually made the growth
+    policy take effect this time.
+- **Middle-click and Ctrl+V paste** directly into the document view
+  (`DocumentView::mousePressEvent`/`keyPressEvent`, emitting a
+  `pasteRequested(QClipboard::Mode)` signal `MainWindow` forwards to the
+  same `pasteFromSource()` the toolbar buttons use). Middle-click pastes
+  the primary selection (X11/Wayland convention) regardless of exactly
+  where in the view the click lands, since -- unlike a normal editor --
+  there's no cursor position to insert at; it replaces the whole document,
+  same as the toolbar buttons. Ctrl+V is intercepted before
+  `QTextEdit::keyPressEvent()` since the widget is read-only and would
+  otherwise silently do nothing.
+- **HTML cleanup is a known TODO, deliberately deferred.** Right now
+  `DocumentView::loadHtml()` hands pasted/opened HTML straight to Qt's
+  `QTextDocument::setHtml()`, which will happily apply inline font-size,
+  font-family, and other styling that fights with the user's own font
+  choice and generally makes no sense read aloud by a TTS engine. The plan
+  (not yet implemented, see the `TODO(HTML cleanup, deferred)` comment in
+  `DocumentView::loadHtml()`) is to sanitize down to a genuinely minimal
+  structural subset before parsing -- keeping things like headings, since
+  they're useful signal for future features (a chime on chapter change,
+  for instance), while dropping presentational styling entirely.
 - **Status bar now has two permanent regions**: the left/normal area shows
   the current activity ("Starting piper-server…", "Preparing audio…",
   "Playing", "Paused", "Stopped", etc. -- see `MainWindow::setActivity()`),

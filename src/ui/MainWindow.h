@@ -25,10 +25,11 @@ public:
         double speed = 1.0;    // 0.5 - 3.0, matches m_speedSpin's range
         bool autoplay = false; // start playback as soon as a document is loaded
         QString initialFile;   // empty = don't open anything on startup
-        // Net DocumentView zoom steps to apply on startup (see
-        // DocumentView::increaseTextSize/decreaseTextSize) -- config-file
-        // only for now, no CLI flag.
-        int textZoomSteps = 0;
+        // Config-file only for now, no CLI flag. Empty family = leave the
+        // widget's default family alone; pointSize <= 0 = leave the
+        // default size alone. See DocumentView::setBaseFont().
+        QString fontFamily;
+        int fontPointSize = -1;
         // At most one of these "start with X" sources is used, in this
         // priority order: pasteSelection, pasteClipboard, initialFile.
         bool pasteClipboard = false;
@@ -57,6 +58,11 @@ private slots:
     void onVoiceListReady(const QStringList &voices, const QString &current);
     void onSpeedChanged(double speed);
     void onPlaybackError(const QString &message);
+    // Opens PreferencesDialog; on Save, applies the chosen voice/speed/text
+    // size to the live session AND persists them to the config file -- the
+    // only place in the app that writes to it (see class comment on
+    // PreferencesDialog).
+    void openPreferences();
 
 private:
     void setUpUi();
@@ -66,6 +72,10 @@ private:
     int sentenceIndexForOffset(int offset) const;
     void connectToPiperServer(const QString &socketPath);
     void pasteFromSource(QClipboard::Mode mode);
+    // Shared by click-to-jump and cursor-key navigation: bounds-checks,
+    // highlights immediately (regardless of playback state), updates the
+    // position label, and tells playback to seek there.
+    void jumpToSentence(int index);
     // Applies whichever startup content source was requested (paste
     // selection/clipboard, or an initial file), once the piper-server
     // connection is actually up. Only ever acts once.
@@ -97,6 +107,10 @@ private:
 
     QVector<Sentence> m_sentences;
     bool m_startupContentLoaded = false;
+
+    // Last voice list reported by the server ("ready" message) -- used to
+    // populate PreferencesDialog's voice dropdown.
+    QStringList m_knownVoices;
 
     // Rough word-count bookkeeping for the info label. Words, not
     // characters, since "estimated minutes" and "percent through" are both

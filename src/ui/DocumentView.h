@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QClipboard>
+#include <QFont>
 #include <QList>
 #include <QTextEdit>
 #include <QVector>
@@ -41,37 +43,54 @@ public:
     void highlightRange(int start, int end);
     void clearHighlight();
 
+    // The font family/size used for plain text and any HTML content
+    // without its own explicit styling. A real font+point-size, not an
+    // abstract "zoom level" -- see setBaseFont().
+    QFont baseFont() const { return m_baseFont; }
+
 public slots:
-    // Text size, applied via QTextEdit's built-in zoomIn/zoomOut (scales
-    // all font sizes proportionally, so HTML headings stay bigger than
-    // body text rather than everything becoming a single flat size). The
-    // cumulative zoom level is tracked and reapplied automatically whenever
-    // new content is loaded, since zoomIn/zoomOut only affects text already
-    // in the document at the time it's called.
+    // Sets the base font (family + point size) and applies it immediately.
+    // Unlike the old zoom-step approach, this doesn't need to be reapplied
+    // on every load: it's set on the QTextDocument itself
+    // (setDefaultFont()), which persists across loadPlainText()/loadHtml()
+    // calls since they reuse the same QTextDocument rather than replacing
+    // it. Plain, unstyled text picks this up dynamically; HTML content with
+    // its own explicit sizing (e.g. headings) won't -- see the HTML-cleanup
+    // TODO in MainWindow/README for narrowing what HTML styling gets kept.
+    void setBaseFont(const QFont &font);
+
+    // Convenience +/- 1pt adjustments on the current base font, e.g. for
+    // quick toolbar buttons -- operate on a real point size now, not a
+    // relative zoom unit.
     void increaseTextSize();
     void decreaseTextSize();
-    void resetTextSize();
-
-    // Sets the starting zoom level (e.g. from a config file default),
-    // before any document has been loaded. Not a slot -- meant to be called
-    // once, right after construction.
-    void setInitialZoomSteps(int steps) { m_zoomSteps = steps; }
 
 signals:
     // Emitted when the user clicks inside the text; caller maps this back
     // to a sentence index (e.g. via binary search over sentence offsets).
     void positionClicked(int plainTextOffset);
+    // Left/Right arrow keys, repurposed for sentence navigation (see
+    // keyPressEvent()) rather than their default fine-grained character
+    // cursor movement -- this is a read-only reader, not an editor, so
+    // sentence-at-a-time navigation is more useful here.
+    void previousSentenceRequested();
+    void nextSentenceRequested();
+    // Ctrl+V (clipboard) or middle-click (primary selection, X11/Wayland
+    // convention) -- this view is read-only and shows one whole document
+    // at a time, so "paste" here means "load this as the new document"
+    // rather than inserting text at a cursor position.
+    void pasteRequested(QClipboard::Mode mode);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     void refreshExtraSelections();
-    void reapplyZoom();
     void centerCursor(const QTextCursor &cursor);
 
     QList<QTextEdit::ExtraSelection> m_tintSelections;
     QTextEdit::ExtraSelection m_currentHighlight;
     bool m_hasCurrentHighlight = false;
-    int m_zoomSteps = 0;
+    QFont m_baseFont;
 };

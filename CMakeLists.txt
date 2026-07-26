@@ -15,6 +15,8 @@ add_executable(text2sprech
     src/ui/MainWindow.h
     src/ui/DocumentView.cpp
     src/ui/DocumentView.h
+    src/ui/PreferencesDialog.cpp
+    src/ui/PreferencesDialog.h
     src/document/SentenceSplitter.cpp
     src/document/SentenceSplitter.h
     src/document/Sentence.h

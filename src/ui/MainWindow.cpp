@@ -10,12 +10,14 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QStatusBar>
 #include <QTextStream>
 #include <QTimer>
@@ -24,6 +26,7 @@
 #include <algorithm>
 
 #include "DocumentView.h"
+#include "PreferencesDialog.h"
 #include "document/SentenceSplitter.h"
 #include "speech/PiperClient.h"
 #include "speech/PiperServerManager.h"
@@ -47,7 +50,14 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     : QMainWindow(parent), m_options(options)
 {
     m_documentView = new DocumentView(this);
-    m_documentView->setInitialZoomSteps(m_options.textZoomSteps);
+    QFont initialFont = m_documentView->baseFont();
+    if (!m_options.fontFamily.isEmpty()) {
+        initialFont.setFamily(m_options.fontFamily);
+    }
+    if (m_options.fontPointSize > 0) {
+        initialFont.setPointSize(m_options.fontPointSize);
+    }
+    m_documentView->setBaseFont(initialFont);
     setCentralWidget(m_documentView);
 
     m_piperClient = new PiperClient(this);
@@ -167,14 +177,12 @@ void MainWindow::setUpUi()
 
     toolbar->addSeparator();
 
-    auto *prevAction = toolbar->addAction(tr("⏮"));
-    connect(prevAction, &QAction::triggered, this, [this] { m_playback->previous(); });
-
+    // Deliberately no Previous/Next buttons here -- click any sentence in
+    // the document, or use the Left/Right arrow keys (see
+    // DocumentView::keyPressEvent), both of which reach the same
+    // jumpToSentence() as these would have.
     m_playPauseAction = toolbar->addAction(tr("Play"));
     connect(m_playPauseAction, &QAction::triggered, this, &MainWindow::togglePlayPause);
-
-    auto *nextAction = toolbar->addAction(tr("⏭"));
-    connect(nextAction, &QAction::triggered, this, [this] { m_playback->next(); });
 
     auto *stopAction = toolbar->addAction(tr("Stop"));
     connect(stopAction, &QAction::triggered, this, [this] {
@@ -186,6 +194,7 @@ void MainWindow::setUpUi()
 
     toolbar->addSeparator();
 
+    toolbar->addWidget(new QLabel(tr("Voice: "), this));
     m_voiceCombo = new QComboBox(this);
     m_voiceCombo->setMinimumWidth(200);
     connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [this](const QString &voice) {
@@ -206,17 +215,31 @@ void MainWindow::setUpUi()
 
     toolbar->addSeparator();
 
+    // Quick +/-1pt adjustments on the current font's point size; pick an
+    // exact font and size via Preferences instead.
     auto *decreaseTextSizeAction = toolbar->addAction(tr("A-"));
-    decreaseTextSizeAction->setToolTip(tr("Decrease text size (Ctrl+-)"));
+    decreaseTextSizeAction->setToolTip(tr("Decrease text size by 1pt (Ctrl+-)"));
     connect(decreaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
 
-    auto *resetTextSizeAction = toolbar->addAction(tr("Reset size"));
-    resetTextSizeAction->setToolTip(tr("Reset text size (Ctrl+0)"));
-    connect(resetTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::resetTextSize);
-
     auto *increaseTextSizeAction = toolbar->addAction(tr("A+"));
-    increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
+    increaseTextSizeAction->setToolTip(tr("Increase text size by 1pt (Ctrl++)"));
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
+
+    toolbar->addSeparator();
+
+    auto *preferencesAction = toolbar->addAction(tr("Preferences…"));
+    preferencesAction->setToolTip(tr("Set default voice, speed, and text size"));
+    connect(preferencesAction, &QAction::triggered, this, &MainWindow::openPreferences);
+
+    connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
+        jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
+    });
+    connect(m_documentView, &DocumentView::nextSentenceRequested, this, [this] {
+        jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex + 1);
+    });
+    connect(m_documentView, &DocumentView::pasteRequested, this, [this](QClipboard::Mode mode) {
+        pasteFromSource(mode);
+    });
 
     // Left/normal area: current activity ("Preparing audio…", "Playing",
     // etc.) -- temporarily hidden by statusBar()->showMessage() popups and
@@ -238,16 +261,6 @@ void MainWindow::setUpShortcuts()
     connect(playPause, &QAction::triggered, this, &MainWindow::togglePlayPause);
     addAction(playPause);
 
-    auto *prev = new QAction(this);
-    prev->setShortcut(Qt::Key_Left);
-    connect(prev, &QAction::triggered, this, [this] { m_playback->previous(); });
-    addAction(prev);
-
-    auto *next = new QAction(this);
-    next->setShortcut(Qt::Key_Right);
-    connect(next, &QAction::triggered, this, [this] { m_playback->next(); });
-    addAction(next);
-
     auto *speedUp = new QAction(this);
     speedUp->setShortcut(Qt::Key_Plus);
     connect(speedUp, &QAction::triggered, this, [this] { m_speedSpin->stepUp(); });
@@ -267,11 +280,6 @@ void MainWindow::setUpShortcuts()
     decreaseTextSize->setShortcut(QKeySequence::ZoomOut);
     connect(decreaseTextSize, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
     addAction(decreaseTextSize);
-
-    auto *resetTextSize = new QAction(this);
-    resetTextSize->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
-    connect(resetTextSize, &QAction::triggered, m_documentView, &DocumentView::resetTextSize);
-    addAction(resetTextSize);
 }
 
 void MainWindow::openFile()
@@ -422,12 +430,20 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
     if (m_sentences.isEmpty()) {
         return;
     }
-    int index = sentenceIndexForOffset(plainTextOffset);
+    jumpToSentence(sentenceIndexForOffset(plainTextOffset));
+}
+
+void MainWindow::jumpToSentence(int index)
+{
+    if (m_sentences.isEmpty()) {
+        return;
+    }
+    index = std::clamp(index, 0, static_cast<int>(m_sentences.size()) - 1);
     const Sentence &sentence = m_sentences[index];
     // Immediate visual feedback regardless of playback state -- if we're
     // paused/stopped, seekToSentence() below won't emit sentenceStarted
-    // (that only fires once audio actually starts), so without this the
-    // click would appear to do nothing until Play is pressed.
+    // (that only fires once audio actually starts), so without this a
+    // click or arrow-key press would appear to do nothing until Play.
     m_documentView->highlightRange(sentence.start, sentence.end);
     m_currentSentenceIndex = index;
     refreshInfoLabel();
@@ -436,6 +452,8 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
 
 void MainWindow::onVoiceListReady(const QStringList &voices, const QString &current)
 {
+    m_knownVoices = voices;
+
     QString selected = current;
     if (!m_options.voice.isEmpty()) {
         if (voices.contains(m_options.voice)) {
@@ -476,6 +494,39 @@ void MainWindow::onPlaybackError(const QString &message)
 {
     qWarning().noquote() << message;
     statusBar()->showMessage(message, 5000);
+}
+
+void MainWindow::openPreferences()
+{
+    PreferencesDialog dialog(m_knownVoices, m_voiceCombo->currentText(), m_speedSpin->value(),
+                              m_documentView->baseFont(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    // Apply live, via the same session-only code paths the toolbar
+    // controls themselves use (setCurrentText/setValue trigger their
+    // existing connected slots) -- none of these write to the config file
+    // on their own.
+    if (!dialog.voice().isEmpty()) {
+        m_voiceCombo->setCurrentText(dialog.voice());
+    }
+    m_speedSpin->setValue(dialog.speed());
+    const QFont chosenFont = dialog.font();
+    m_documentView->setBaseFont(chosenFont);
+
+    // Persist. This is the only place in the app that writes to the config
+    // file -- CLI flags and the regular toolbar controls are session-only
+    // by design (see PreferencesDialog's note to the user).
+    QSettings settings;
+    settings.beginGroup("general");
+    settings.setValue("voice", dialog.voice());
+    settings.setValue("speed", dialog.speed());
+    settings.setValue("fontFamily", chosenFont.family());
+    settings.setValue("fontPointSize", chosenFont.pointSize());
+    settings.endGroup();
+
+    statusBar()->showMessage(tr("Preferences saved"), 3000);
 }
 
 void MainWindow::setActivity(const QString &text)

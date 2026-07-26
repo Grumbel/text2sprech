@@ -17,7 +17,8 @@ namespace {
 struct FileConfig {
     QString voice;
     double speed = 1.0;
-    int textZoomSteps = 0;
+    QString fontFamily;
+    int fontPointSize = -1; // <= 0 means "leave the widget's default size alone"
 };
 
 FileConfig loadFileConfig()
@@ -27,6 +28,7 @@ FileConfig loadFileConfig()
     settings.beginGroup("general");
 
     config.voice = settings.value("voice", QString()).toString();
+    config.fontFamily = settings.value("fontFamily", QString()).toString();
 
     bool speedOk = false;
     double speed = settings.value("speed", 1.0).toDouble(&speedOk);
@@ -37,13 +39,13 @@ FileConfig loadFileConfig()
                               << "(expected 0.5-3.0); using 1.0";
     }
 
-    bool zoomOk = false;
-    int zoomSteps = settings.value("textZoomSteps", 0).toInt(&zoomOk);
-    if (zoomOk && zoomSteps >= -20 && zoomSteps <= 20) {
-        config.textZoomSteps = zoomSteps;
-    } else if (settings.contains("textZoomSteps")) {
-        qWarning().noquote() << "Config: invalid textZoomSteps value" << settings.value("textZoomSteps")
-                              << "(expected -20 to 20); using 0";
+    bool sizeOk = false;
+    int pointSize = settings.value("fontPointSize", -1).toInt(&sizeOk);
+    if (sizeOk && pointSize >= 6 && pointSize <= 72) {
+        config.fontPointSize = pointSize;
+    } else if (settings.contains("fontPointSize")) {
+        qWarning().noquote() << "Config: invalid fontPointSize value" << settings.value("fontPointSize")
+                              << "(expected 6-72); using the widget default";
     }
 
     settings.endGroup();
@@ -131,7 +133,8 @@ int main(int argc, char *argv[])
     options.piperSocket = parser.value(piperSocketOption);
     options.pasteClipboard = parser.isSet(pasteClipboardOption);
     options.pasteSelection = parser.isSet(pasteSelectionOption);
-    options.textZoomSteps = fileConfig.textZoomSteps; // config-file only, no CLI flag
+    options.fontFamily = fileConfig.fontFamily; // config-file only, no CLI flag
+    options.fontPointSize = fileConfig.fontPointSize; // config-file only, no CLI flag
 
     const QStringList positional = parser.positionalArguments();
     if (!positional.isEmpty()) {
