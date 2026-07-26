@@ -15,6 +15,7 @@ class QDoubleSpinBox;
 class QAction;
 class QCloseEvent;
 class QLabel;
+class QSlider;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -90,11 +91,16 @@ private:
     // status bar) -- distinct from the transient statusBar()->showMessage()
     // notifications, which briefly cover it and then reveal it again.
     void setActivity(const QString &text);
-    // Right-side permanent status bar label: rough total length (words,
-    // estimated minutes at the current speed) and current position (words
-    // read so far, percent). Recomputed whenever the document, current
-    // sentence, or speed changes.
-    void refreshInfoLabel();
+    // Updates the player-bar progress strip: seek slider, elapsed/remaining
+    // time estimates, and sentence counter. Recomputed when the document,
+    // current sentence, or speed changes.
+    void refreshProgress();
+    // Maps a word-offset (0 .. m_totalWords) to the sentence that starts
+    // at or before that point -- used when the user drags/clicks the
+    // progress slider.
+    int sentenceIndexForWordOffset(int wordOffset) const;
+    // User interacted with the progress slider (click or release after drag).
+    void onProgressSliderCommitted(int wordOffset);
 
     Options m_options;
 
@@ -108,8 +114,11 @@ private:
     QComboBox *m_voiceCombo;
     QDoubleSpinBox *m_speedSpin;
     QAction *m_playPauseAction;
-    QLabel *m_activityLabel;  // left/normal status bar area: current activity
-    QLabel *m_infoLabel;      // right/permanent status bar area: length + position estimate
+    QLabel *m_activityLabel;     // left/normal status bar area: current activity
+    QSlider *m_progressSlider;   // word-based position through the document
+    QLabel *m_elapsedLabel;      // estimated listening time so far
+    QLabel *m_remainingLabel;    // estimated listening time left (−m:ss)
+    QLabel *m_sentenceLabel;     // "sentence N / M"
 
     QVector<Sentence> m_sentences;
     bool m_startupContentLoaded = false;
@@ -119,13 +128,12 @@ private:
     // populate PreferencesDialog's voice dropdown.
     QStringList m_knownVoices;
 
-    // Rough word-count bookkeeping for the info label. Words, not
-    // characters, since "estimated minutes" and "percent through" are both
-    // more meaningful in word terms for a TTS reader. Recomputed whenever
-    // m_sentences changes (reindexSentences()).
+    // Word-count bookkeeping for the progress strip (elapsed/remaining and
+    // slider range). Recomputed whenever m_sentences changes.
     int m_totalWords = 0;
     QVector<int> m_cumulativeWordsBeforeSentence; // parallel to m_sentences
     int m_currentSentenceIndex = -1; // -1 = no position yet (nothing played/clicked)
+    bool m_progressSliderPressed = false; // suppress programmatic feedback while dragging
 
     // Startup connection retry: the spawned server needs a moment to import
     // Python/load models before its socket exists, so the first few connect

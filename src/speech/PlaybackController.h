@@ -27,8 +27,13 @@ public:
     explicit PlaybackController(PiperClient *client, QObject *parent = nullptr);
 
     void loadSentences(const QVector<Sentence> &sentences);
+    // Starts or resumes: if pause() left us mid-sentence, continues from the
+    // same playback position; otherwise starts the current sentence from 0.
     void play();
+    // Freezes the current sentence in place (resume with play()).
     void pause();
+    // Halts playback and forgets mid-sentence position so the next play()
+    // restarts the current sentence from the beginning.
     void stop();
     void next();
     void previous();
@@ -80,4 +85,7 @@ private:
     QHash<int, QByteArray> m_audioCache; // key: sentence id (== index into m_sentences for v1)
     bool m_waitingForAudio = false;
     bool m_playing = false;
+    // True after pause() while the current sentence's media is still loaded;
+    // play() resumes instead of reloading. Cleared by stop()/seek/new media.
+    bool m_paused = false;
 };

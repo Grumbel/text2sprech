@@ -28,6 +28,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QStyle>
+#include <QSlider>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <algorithm>
@@ -41,17 +42,39 @@
 #include "speech/PlaybackController.h"
 
 namespace {
-// Rough word count -- good enough for a length/position estimate, not
-// meant to be precise (matches the "can be rough" spirit of the estimate).
+// Rough word count -- good enough for progress estimates, not precise.
 int countWords(const QString &text)
 {
     static const QRegularExpression whitespace(QStringLiteral("\\s+"));
     return text.split(whitespace, Qt::SkipEmptyParts).size();
 }
 
-// Typical spoken-word rate at 1.0x speed, used only to turn a word count
-// into a rough minutes estimate -- Piper's actual rate varies by voice.
+// Typical spoken-word rate at 1.0x speed -- Piper's actual rate varies by voice.
 constexpr double kWordsPerMinuteBase = 150.0;
+
+// Format seconds as m:ss or h:mm:ss (no leading zero hours).
+QString formatDuration(int totalSeconds)
+{
+    totalSeconds = qMax(0, totalSeconds);
+    const int hours = totalSeconds / 3600;
+    const int minutes = (totalSeconds % 3600) / 60;
+    const int seconds = totalSeconds % 60;
+    if (hours > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(hours)
+            .arg(minutes, 2, 10, QLatin1Char('0'))
+            .arg(seconds, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2")
+        .arg(minutes)
+        .arg(seconds, 2, 10, QLatin1Char('0'));
+}
+
+int wordsToSeconds(int words, double speed)
+{
+    const double wpm = kWordsPerMinuteBase * qMax(0.1, speed);
+    return static_cast<int>((words / wpm) * 60.0 + 0.5);
+}
 } // namespace
 
 MainWindow::MainWindow(const Options &options, QWidget *parent)
@@ -137,7 +160,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         connectToPiperServer(socketPath);
     }
 
-    refreshInfoLabel(); // initializes to "No document loaded"
+    refreshProgress(); // initializes to "No document loaded"
 
     resize(900, 700);
     setWindowIcon(QIcon(QStringLiteral(":/icons/text2sprech.png")));
@@ -291,17 +314,91 @@ void MainWindow::setUpUi()
         pasteFromSource(mode);
     });
 
-    // --- Bottom transport bar (media-player style) ---
+    // --- Bottom player bar: progress strip + transport ---
     auto *playerBar = new QWidget(central);
     playerBar->setObjectName(QStringLiteral("playerBar"));
-    auto *playerLayout = new QHBoxLayout(playerBar);
-    playerLayout->setContentsMargins(8, 6, 8, 6);
-    playerLayout->setSpacing(4);
+    auto *playerColumn = new QVBoxLayout(playerBar);
+    playerColumn->setContentsMargins(10, 6, 10, 6);
+    playerColumn->setSpacing(2);
+
+    // Seekable progress track (word-based position through the document).
+    m_progressSlider = new QSlider(Qt::Horizontal, playerBar);
+    m_progressSlider->setRange(0, 0);
+    m_progressSlider->setValue(0);
+    m_progressSlider->setEnabled(false);
+    m_progressSlider->setFocusPolicy(Qt::NoFocus);
+    m_progressSlider->setTracking(true);
+    m_progressSlider->setToolTip(tr("Jump to a position in the document"));
+    // Compact track; thumb stays usable.
+    m_progressSlider->setMinimumHeight(18);
+    m_progressSlider->setMaximumHeight(22);
+    connect(m_progressSlider, &QSlider::sliderPressed, this, [this] {
+        m_progressSliderPressed = true;
+    });
+    connect(m_progressSlider, &QSlider::sliderReleased, this, [this] {
+        m_progressSliderPressed = false;
+        onProgressSliderCommitted(m_progressSlider->value());
+    });
+    // Click-to-seek without a drag: value changes while not pressed means
+    // the style jumped the thumb; commit immediately.
+    connect(m_progressSlider, &QSlider::sliderMoved, this, [this](int value) {
+        // Live-update the time labels while dragging without seeking audio
+        // on every tick (that would thrash synthesis).
+        if (!m_sentences.isEmpty() && m_totalWords > 0) {
+            const double speed = m_speedSpin->value();
+            const int elapsedSec = wordsToSeconds(value, speed);
+            const int remainingSec = wordsToSeconds(m_totalWords - value, speed);
+            m_elapsedLabel->setText(formatDuration(elapsedSec));
+            m_remainingLabel->setText(QStringLiteral("−%1").arg(formatDuration(remainingSec)));
+            const int idx = sentenceIndexForWordOffset(value);
+            m_sentenceLabel->setText(tr("%1 / %2").arg(idx + 1).arg(m_sentences.size()));
+        }
+    });
+    // Page-step / single-step clicks on the groove (no press/release pair
+    // on some styles) still commit via actionTriggered.
+    connect(m_progressSlider, &QSlider::actionTriggered, this, [this](int /*action*/) {
+        if (!m_progressSliderPressed) {
+            // Defer until the slider has applied the new value.
+            QTimer::singleShot(0, this, [this] {
+                if (!m_progressSliderPressed) {
+                    onProgressSliderCommitted(m_progressSlider->value());
+                }
+            });
+        }
+    });
+    playerColumn->addWidget(m_progressSlider);
+
+    // Time / transport / sentence row.
+    auto *controlsRow = new QWidget(playerBar);
+    auto *controlsLayout = new QHBoxLayout(controlsRow);
+    controlsLayout->setContentsMargins(0, 0, 0, 0);
+    controlsLayout->setSpacing(8);
+
+    m_elapsedLabel = new QLabel(QStringLiteral("0:00"), controlsRow);
+    m_elapsedLabel->setMinimumWidth(48);
+    m_elapsedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_elapsedLabel->setToolTip(tr("Estimated time listened (at current speed)"));
+
+    m_remainingLabel = new QLabel(QStringLiteral("−0:00"), controlsRow);
+    m_remainingLabel->setMinimumWidth(56);
+    m_remainingLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_remainingLabel->setToolTip(tr("Estimated time remaining (at current speed)"));
+
+    m_sentenceLabel = new QLabel(controlsRow);
+    m_sentenceLabel->setMinimumWidth(72);
+    m_sentenceLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_sentenceLabel->setToolTip(tr("Current sentence / total"));
+
+    // Slightly muted secondary text so transport icons stay primary.
+    QFont metaFont = m_elapsedLabel->font();
+    metaFont.setPointSizeF(metaFont.pointSizeF() * 0.95);
+    m_elapsedLabel->setFont(metaFont);
+    m_remainingLabel->setFont(metaFont);
+    m_sentenceLabel->setFont(metaFont);
 
     const QSize iconSize(28, 28);
-
-    auto makeTransportButton = [this, playerBar, iconSize](QStyle::StandardPixmap sp, const QString &tip) {
-        auto *btn = new QToolButton(playerBar);
+    auto makeTransportButton = [this, controlsRow, iconSize](QStyle::StandardPixmap sp, const QString &tip) {
+        auto *btn = new QToolButton(controlsRow);
         btn->setIcon(style()->standardIcon(sp));
         btn->setIconSize(iconSize);
         btn->setToolTip(tip);
@@ -319,7 +416,7 @@ void MainWindow::setUpUi()
     m_playPauseAction = new QAction(style()->standardIcon(QStyle::SP_MediaPlay), tr("Play"), this);
     m_playPauseAction->setToolTip(tr("Play (Space)"));
     connect(m_playPauseAction, &QAction::triggered, this, &MainWindow::togglePlayPause);
-    auto *playPauseBtn = new QToolButton(playerBar);
+    auto *playPauseBtn = new QToolButton(controlsRow);
     playPauseBtn->setDefaultAction(m_playPauseAction);
     playPauseBtn->setIconSize(QSize(36, 36));
     playPauseBtn->setAutoRaise(true);
@@ -341,28 +438,25 @@ void MainWindow::setUpUi()
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex + 1);
     });
 
-    // Center the transport cluster like a regular media player.
-    playerLayout->addStretch(1);
-    playerLayout->addWidget(prevBtn);
-    playerLayout->addWidget(playPauseBtn);
-    playerLayout->addWidget(stopBtn);
-    playerLayout->addWidget(nextBtn);
-    playerLayout->addStretch(1);
+    // Layout: [elapsed] … [transport] … [remaining · sentence]
+    controlsLayout->addWidget(m_elapsedLabel);
+    controlsLayout->addStretch(1);
+    controlsLayout->addWidget(prevBtn);
+    controlsLayout->addWidget(playPauseBtn);
+    controlsLayout->addWidget(stopBtn);
+    controlsLayout->addWidget(nextBtn);
+    controlsLayout->addStretch(1);
+    controlsLayout->addWidget(m_remainingLabel);
+    controlsLayout->addWidget(m_sentenceLabel);
 
+    playerColumn->addWidget(controlsRow);
     centralLayout->addWidget(playerBar);
     setCentralWidget(central);
 
     // Left/normal area: current activity ("Preparing audio…", "Playing",
-    // etc.) -- temporarily hidden by statusBar()->showMessage() popups and
-    // revealed again once those expire, which is standard QStatusBar
-    // behavior and exactly what we want here (a transient notification
-    // briefly covering the steady-state indicator).
+    // etc.) -- temporarily hidden by statusBar()->showMessage() popups.
     m_activityLabel = new QLabel(this);
     statusBar()->addWidget(m_activityLabel);
-
-    // Right/permanent area: length + position estimate, always visible.
-    m_infoLabel = new QLabel(this);
-    statusBar()->addPermanentWidget(m_infoLabel);
 
     // Visible immediately while the piper-server connects; replaced if
     // startup paste/file loads, otherwise stays until the user opens/pastes.
@@ -502,7 +596,7 @@ void MainWindow::showWelcomeMessage()
 
     loadDocumentText(html, /*isHtml=*/true);
     m_showingWelcome = true;
-    refreshInfoLabel();
+    refreshProgress();
 }
 
 
@@ -568,7 +662,7 @@ void MainWindow::reindexSentences()
     }
     m_totalWords = running;
     m_currentSentenceIndex = -1; // no position yet in the freshly (re)loaded document
-    refreshInfoLabel();
+    refreshProgress();
 }
 
 int MainWindow::sentenceIndexForOffset(int offset) const
@@ -615,7 +709,7 @@ void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
     m_documentView->highlightRange(start, end, DocumentView::HighlightState::Playing);
     m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
     setActivity(tr("Playing"));
-    refreshInfoLabel();
+    refreshProgress();
 }
 
 void MainWindow::onPreparingAudio(int sentenceId)
@@ -624,7 +718,7 @@ void MainWindow::onPreparingAudio(int sentenceId)
         const Sentence &s = m_sentences[sentenceId];
         m_documentView->highlightRange(s.start, s.end, DocumentView::HighlightState::Preparing);
         m_currentSentenceIndex = sentenceId;
-        refreshInfoLabel();
+        refreshProgress();
     } else {
         m_documentView->setHighlightState(DocumentView::HighlightState::Preparing);
     }
@@ -657,7 +751,7 @@ void MainWindow::jumpToSentence(int index)
         : DocumentView::HighlightState::Stopped;
     m_documentView->highlightRange(sentence.start, sentence.end, state);
     m_currentSentenceIndex = index;
-    refreshInfoLabel();
+    refreshProgress();
     m_playback->seekToSentence(index);
 }
 
@@ -698,7 +792,7 @@ void MainWindow::onVoiceListReady(const QStringList &voices, const QString &curr
 void MainWindow::onSpeedChanged(double speed)
 {
     m_playback->setSpeed(speed);
-    refreshInfoLabel(); // estimated minutes scales with speed
+    refreshProgress(); // estimated minutes scales with speed
 }
 
 void MainWindow::onPlaybackError(const QString &message)
@@ -795,22 +889,78 @@ void MainWindow::setActivity(const QString &text)
     m_activityLabel->setText(text);
 }
 
-void MainWindow::refreshInfoLabel()
+void MainWindow::refreshProgress()
 {
     if (m_sentences.isEmpty()) {
-        m_infoLabel->setText(m_showingWelcome ? tr("Welcome") : tr("No document loaded"));
+        m_progressSlider->blockSignals(true);
+        m_progressSlider->setRange(0, 0);
+        m_progressSlider->setValue(0);
+        m_progressSlider->setEnabled(false);
+        m_progressSlider->blockSignals(false);
+        m_elapsedLabel->setText(QStringLiteral("0:00"));
+        m_remainingLabel->setText(QStringLiteral("−0:00"));
+        m_sentenceLabel->setText(m_showingWelcome ? tr("Welcome") : tr("—"));
+        m_progressSlider->setToolTip(tr("No document loaded"));
         return;
     }
 
-    const double speed = qMax(0.1, m_speedSpin->value());
-    const int estimatedMinutes = static_cast<int>((m_totalWords / (kWordsPerMinuteBase * speed)) + 0.5);
-    QString text = tr("~%1 words, ~%2 min").arg(m_totalWords).arg(qMax(0, estimatedMinutes));
+    const double speed = m_speedSpin->value();
+    const int totalSec = wordsToSeconds(m_totalWords, speed);
 
-    if (m_currentSentenceIndex >= 0 && m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
-        const int wordsSoFar = m_cumulativeWordsBeforeSentence[m_currentSentenceIndex];
-        const int percent = m_totalWords > 0 ? static_cast<int>(100.0 * wordsSoFar / m_totalWords) : 0;
-        text += tr("  |  word %1 (%2%)").arg(wordsSoFar).arg(percent);
+    int wordsSoFar = 0;
+    int displayIndex = 0; // 1-based when positioned; 0 means "not started"
+    if (m_currentSentenceIndex >= 0
+        && m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
+        wordsSoFar = m_cumulativeWordsBeforeSentence[m_currentSentenceIndex];
+        displayIndex = m_currentSentenceIndex + 1;
     }
 
-    m_infoLabel->setText(text);
+    const int elapsedSec = wordsToSeconds(wordsSoFar, speed);
+    const int remainingSec = wordsToSeconds(m_totalWords - wordsSoFar, speed);
+
+    // Don't fight the user while they're dragging the thumb.
+    if (!m_progressSliderPressed) {
+        m_progressSlider->blockSignals(true);
+        m_progressSlider->setEnabled(true);
+        m_progressSlider->setRange(0, qMax(1, m_totalWords));
+        m_progressSlider->setValue(qBound(0, wordsSoFar, m_progressSlider->maximum()));
+        m_progressSlider->blockSignals(false);
+    }
+
+    m_elapsedLabel->setText(formatDuration(elapsedSec));
+    m_remainingLabel->setText(QStringLiteral("−%1").arg(formatDuration(remainingSec)));
+    if (displayIndex > 0) {
+        m_sentenceLabel->setText(tr("%1 / %2").arg(displayIndex).arg(m_sentences.size()));
+    } else {
+        m_sentenceLabel->setText(tr("— / %1").arg(m_sentences.size()));
+    }
+
+    const int percent = m_totalWords > 0
+        ? static_cast<int>(100.0 * wordsSoFar / m_totalWords + 0.5)
+        : 0;
+    m_progressSlider->setToolTip(
+        tr("Position: %1% · ~%2 total at current speed · click or drag to jump")
+            .arg(percent)
+            .arg(formatDuration(totalSec)));
+}
+
+int MainWindow::sentenceIndexForWordOffset(int wordOffset) const
+{
+    if (m_sentences.isEmpty()) {
+        return 0;
+    }
+    wordOffset = qBound(0, wordOffset, m_totalWords);
+    // Last sentence whose start (words before it) is <= wordOffset.
+    auto it = std::upper_bound(
+        m_cumulativeWordsBeforeSentence.begin(), m_cumulativeWordsBeforeSentence.end(), wordOffset);
+    int index = static_cast<int>(it - m_cumulativeWordsBeforeSentence.begin()) - 1;
+    return qBound(0, index, static_cast<int>(m_sentences.size()) - 1);
+}
+
+void MainWindow::onProgressSliderCommitted(int wordOffset)
+{
+    if (m_sentences.isEmpty()) {
+        return;
+    }
+    jumpToSentence(sentenceIndexForWordOffset(wordOffset));
 }

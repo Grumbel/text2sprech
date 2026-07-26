@@ -301,16 +301,14 @@ text2sprech/
   links — so author font sizes/families/colours do not fight the user's
   Preferences font choice. `DocumentView::loadHtml()` only receives that
   cleaned HTML.
-- **Status bar now has two permanent regions**: the left/normal area shows
-  the current activity ("Starting piper-server…", "Preparing audio…",
-  "Playing", "Paused", "Stopped", etc. -- see `MainWindow::setActivity()`),
-  temporarily covered by transient notifications (errors, "Loaded N
-  sentences") the same way `QStatusBar::showMessage()` always covers normal
-  widgets. The right/permanent area (`MainWindow::refreshInfoLabel()`)
-  shows a rough total length ("~1,234 words, ~8 min", scaled by the current
-  speed) and current position ("word 456 (37%)"), based on a simple
-  whitespace word count and a fixed 150 words/minute baseline -- both
-  explicitly approximate, not meant to be precise.
+- **Player-bar progress strip** (not the status bar): a seekable slider
+  plus elapsed / remaining time and a sentence counter (`12 / 48`).
+  Position is word-based (whitespace count, ~150 wpm at 1.0x, scaled by
+  current speed) so estimates stay meaningful without per-sentence audio
+  durations. Dragging the slider updates the labels live; releasing
+  (or clicking the track) jumps playback to that sentence. The status
+  bar itself only shows activity ("Playing", "Preparing audio…", etc.)
+  plus transient notifications.
 - **Punctuation/symbol-only "sentences" (e.g. leftover `---`, `***`, stray
   HTML-derived junk) are dropped before ever being sent to Piper.** Piper's
   own text normalization reduces text with no letters or digits at all to

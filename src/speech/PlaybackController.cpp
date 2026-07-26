@@ -33,20 +33,44 @@ void PlaybackController::play()
     }
     m_playing = true;
     requestLookahead();
+
+    // Resume mid-sentence after pause(). Reloading the WAV (playCurrentIfReady)
+    // would restart the segment from the beginning -- that's what stop() is for.
+    if (m_paused) {
+        m_paused = false;
+        m_player.play();
+        return;
+    }
+
     playCurrentIfReady();
 }
 
 void PlaybackController::pause()
 {
+    if (!m_playing && m_player.playbackState() != QMediaPlayer::PlayingState) {
+        return;
+    }
     m_playing = false;
-    m_player.pause();
+    // Only mark resumable if audio is actually flowing; pausing while still
+    // waiting for synthesis should just cancel the "playing" intent.
+    if (m_player.playbackState() == QMediaPlayer::PlayingState
+        || m_player.playbackState() == QMediaPlayer::PausedState) {
+        m_paused = true;
+        m_player.pause();
+    } else {
+        m_paused = false;
+    }
 }
 
 void PlaybackController::stop()
 {
     m_playing = false;
+    m_paused = false;
     m_waitingForAudio = false;
     m_player.stop();
+    // Drop the current media so the next play() reloads from the start.
+    m_player.setSource(QUrl());
+    m_currentAudioBuffer.reset();
     m_client->cancelAll();
 }
 
@@ -71,12 +95,17 @@ void PlaybackController::seekToSentence(int index)
     if (index < 0 || index >= m_sentences.size()) {
         if (index >= m_sentences.size()) {
             m_playing = false;
+            m_paused = false;
             emit playbackFinished();
         }
         return;
     }
     bool wasPlaying = m_playing;
+    // Seeking always starts the target sentence from the beginning.
+    m_paused = false;
     m_player.stop();
+    m_player.setSource(QUrl());
+    m_currentAudioBuffer.reset();
     m_currentIndex = index;
     if (wasPlaying) {
         play();
@@ -138,10 +167,12 @@ void PlaybackController::playCurrentIfReady()
     auto it = m_audioCache.find(s.id);
     if (it == m_audioCache.end()) {
         m_waitingForAudio = true; // onAudioReady will resume playback when it arrives
+        m_paused = false;
         emit preparingAudio(s.id);
         return;
     }
     m_waitingForAudio = false;
+    m_paused = false;
 
     m_currentAudioBuffer = std::make_unique<QBuffer>();
     m_currentAudioBuffer->setData(it.value());
@@ -158,8 +189,12 @@ void PlaybackController::advanceToNext()
 {
     m_audioCache.remove(m_sentences[m_currentIndex].id);
     ++m_currentIndex;
+    m_paused = false;
     if (m_currentIndex >= m_sentences.size()) {
         m_playing = false;
+        m_player.stop();
+        m_player.setSource(QUrl());
+        m_currentAudioBuffer.reset();
         emit playbackFinished();
         return;
     }
