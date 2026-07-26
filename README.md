@@ -119,6 +119,27 @@ Invalid `fontPointSize` values (outside 6-72, wrong type) are ignored with
 a warning printed to stderr, falling back to the default. Color keys are
 written by Preferences when you pick a custom swatch; reset clears them.
 
+### Voice models (languages)
+
+Drop Piper voice files (`Name.onnx` + `Name.onnx.json`) into:
+
+```
+~/.local/share/text2sprech/voices/
+```
+
+That directory is created on first launch. Also scanned:
+`~/.local/share/piper/voices/`, plus any **Extra voice dirs** set in
+Preferences. In the config file that is a normal QSettings `QStringList`
+under `[voices]` (IniFormat writes it as a comma-separated line):
+
+```ini
+[voices]
+extraDirs=/path/to/more/voices, /another/dir
+```
+
+Restart the app after adding models or changing directories. The flake does
+not need to vendor every language.
+
 Or via the flake, once you can reach the network to resolve nixpkgs:
 
 ```bash

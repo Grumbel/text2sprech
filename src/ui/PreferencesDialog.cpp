@@ -3,23 +3,37 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QFont>
 #include <QFontComboBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
+namespace {
+
+QString defaultUserVoicesDirPath()
+{
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
+        .filePath(QStringLiteral("text2sprech/voices"));
+}
+
+} // namespace
+
 PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice,
                                       double defaultSpeed, const QFont &defaultFont,
-                                      const DocumentView::Colors &defaultColors, QWidget *parent)
+                                      const DocumentView::Colors &defaultColors,
+                                      const QStringList &defaultExtraVoiceDirs, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
@@ -59,6 +73,23 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     fontRowLayout->addWidget(m_fontCombo, /*stretch=*/3);
     fontRowLayout->addWidget(m_fontSizeSpin, /*stretch=*/1);
 
+    const QString voicesDir = defaultUserVoicesDirPath();
+    auto *voicesDirLabel = new QLabel(
+        tr("<b>Voice models folder</b><br/>"
+           "Drop Piper <code>.onnx</code> and matching <code>.onnx.json</code> files here "
+           "(any language). Created automatically if missing:<br/><code>%1</code>")
+            .arg(voicesDir),
+        this);
+    voicesDirLabel->setWordWrap(true);
+    voicesDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+    m_extraVoiceDirsEdit = new QPlainTextEdit(this);
+    m_extraVoiceDirsEdit->setPlaceholderText(
+        tr("Optional: one extra directory per line\n/path/to/more/voices"));
+    m_extraVoiceDirsEdit->setPlainText(defaultExtraVoiceDirs.join(QLatin1Char('\n')));
+    m_extraVoiceDirsEdit->setFixedHeight(72);
+    m_extraVoiceDirsEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
     auto *form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
     form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
@@ -67,6 +98,8 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     form->addRow(tr("Voice:"), m_voiceCombo);
     form->addRow(tr("Speed:"), m_speedSpin);
     form->addRow(tr("Font:"), fontRow);
+    form->addRow(tr("Voices:"), voicesDirLabel);
+    form->addRow(tr("Extra voice dirs:"), m_extraVoiceDirsEdit);
 
     // Theme defaults for reset + swatch preview when no override is stored.
     const bool dark = palette().color(QPalette::Base).lightness() < 128;
@@ -86,9 +119,10 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
 
     auto *note = new QLabel(
         tr("Save writes these as the defaults for the next time %1 starts "
-           "(current session unchanged). Apply pushes them into the current "
-           "session only and does not update the saved defaults. "
-           "The reset button on each color restores the built-in theme default.")
+           "(current session unchanged). Apply pushes voice/speed/font/colors "
+           "into the current session only — extra voice directories always need "
+           "a restart. The reset button on each color restores the built-in "
+           "theme default.")
             .arg(QStringLiteral("text2sprech")),
         this);
     note->setWordWrap(true);
@@ -212,4 +246,21 @@ DocumentView::Colors PreferencesDialog::colors() const
     c.stopped = m_stoppedColor->value;
     c.hover = m_hoverColor->value;
     return c;
+}
+
+QStringList PreferencesDialog::extraVoiceDirs() const
+{
+    QStringList out;
+    if (!m_extraVoiceDirsEdit) {
+        return out;
+    }
+    const QStringList lines = m_extraVoiceDirsEdit->toPlainText().split(
+        QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QString trimmed = line.trimmed();
+        if (!trimmed.isEmpty()) {
+            out << trimmed;
+        }
+    }
+    return out;
 }

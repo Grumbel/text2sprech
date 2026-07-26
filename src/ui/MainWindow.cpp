@@ -1213,13 +1213,18 @@ void MainWindow::openPreferences()
     defaultColors.hover = readColor(QStringLiteral("colorHover"));
     settings.endGroup();
 
+    settings.beginGroup(QStringLiteral("voices"));
+    const QStringList extraVoiceDirs = settings.value(QStringLiteral("extraDirs")).toStringList();
+    settings.endGroup();
+
     QFont defaultFont;
     if (!defaultFamily.isEmpty()) {
         defaultFont.setFamily(defaultFamily);
     }
     defaultFont.setPointSize(defaultPointSize);
 
-    PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors, this);
+    PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors,
+                             extraVoiceDirs, this);
 
     auto applyToSession = [this, &dialog] {
         if (!dialog.voice().isEmpty()) {
@@ -1258,9 +1263,14 @@ void MainWindow::openPreferences()
     storeColor(QStringLiteral("colorStopped"), chosenColors.stopped);
     storeColor(QStringLiteral("colorHover"), chosenColors.hover);
     settings.endGroup();
+
+    settings.beginGroup(QStringLiteral("voices"));
+    settings.setValue(QStringLiteral("extraDirs"), dialog.extraVoiceDirs());
+    settings.endGroup();
     settings.sync();
 
-    statusBar()->showMessage(tr("Preferences saved (apply on next start)"), 3000);
+    statusBar()->showMessage(
+        tr("Preferences saved (voice directories apply on next start)"), 4000);
 }
 
 void MainWindow::setActivity(const QString &text)

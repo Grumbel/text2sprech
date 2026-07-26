@@ -12,6 +12,7 @@ import abc
 import asyncio
 import io
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -56,12 +57,75 @@ def _silent_wav(sample_rate: int = 22050, duration_s: float = 0.05) -> bytes:
     return buf.getvalue()
 
 
+def default_user_voices_dir() -> Path:
+    """Primary drop-in directory for user-installed Piper voices."""
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "text2sprech" / "voices"
+
+
+def resolve_model_dirs(explicit: list[Path] | None = None) -> list[Path]:
+    """Ordered list of directories to scan for *.onnx voice models.
+
+    Priority:
+      1. explicit paths (CLI --model-dir, repeated)
+      2. TEXT2SPRECH_PIPER_MODELS (os.pathsep-separated)
+      3. defaults: ~/.local/share/text2sprech/voices, ~/.local/share/piper/voices
+    """
+    dirs: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        key = str(path.expanduser())
+        if key in seen:
+            return
+        seen.add(key)
+        dirs.append(Path(key))
+
+    if explicit:
+        for p in explicit:
+            add(p)
+    env = os.environ.get("TEXT2SPRECH_PIPER_MODELS", "").strip()
+    if env:
+        for part in env.split(os.pathsep):
+            part = part.strip()
+            if part:
+                add(Path(part))
+    if not dirs:
+        add(default_user_voices_dir())
+        xdg = os.environ.get("XDG_DATA_HOME")
+        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+        add(base / "piper" / "voices")
+    return dirs
+
+
+def list_onnx_voices(model_dirs: list[Path]) -> list[str]:
+    """Voice names (file stems) found under any model dir; first dir wins ties."""
+    found: dict[str, Path] = {}
+    for d in model_dirs:
+        if not d.is_dir():
+            continue
+        for p in sorted(d.glob("*.onnx")):
+            found.setdefault(p.stem, p)
+    return sorted(found.keys())
+
+
+def find_voice_model(model_dirs: list[Path], voice: str) -> Path:
+    for d in model_dirs:
+        candidate = d / f"{voice}.onnx"
+        if candidate.is_file():
+            return candidate
+    searched = ", ".join(str(d) for d in model_dirs) or "(none)"
+    raise FileNotFoundError(f"voice model not found: {voice}.onnx (searched: {searched})")
+
+
 class SynthBackend(abc.ABC):
     name: str = "abstract"
     # False for SilentTestBackend — GUI uses this to warn that nothing will
     # be audible even though the protocol still works end-to-end.
     real_audio: bool = True
-    model_dir: Path | None = None
+    # Human-readable summary of search paths (joined); used in ready/warning.
+    model_dir: str | None = None
 
     @abc.abstractmethod
     async def synthesize(self, text: str, voice: str, speed: float) -> SynthResult:
@@ -83,19 +147,17 @@ class PiperPythonBackend(SynthBackend):
     name = "piper-python"
     real_audio = True
 
-    def __init__(self, model_dir: Path):
+    def __init__(self, model_dirs: list[Path]):
         from piper.voice import PiperVoice  # type: ignore  # noqa: F401
 
         self._PiperVoice = PiperVoice
-        self._model_dir = model_dir
-        self.model_dir = model_dir
+        self._model_dirs = model_dirs
+        self.model_dir = os.pathsep.join(str(d) for d in model_dirs)
         self._voices: dict[str, "PiperVoice"] = {}
 
     def _load(self, voice: str):
         if voice not in self._voices:
-            model_path = self._model_dir / f"{voice}.onnx"
-            if not model_path.exists():
-                raise FileNotFoundError(f"voice model not found: {model_path}")
+            model_path = find_voice_model(self._model_dirs, voice)
             self._voices[voice] = self._PiperVoice.load(str(model_path))
         return self._voices[voice]
 
@@ -114,9 +176,7 @@ class PiperPythonBackend(SynthBackend):
         return SynthResult(wav_bytes=buf.getvalue(), sample_rate=model.config.sample_rate)
 
     def list_voices(self) -> list[str]:
-        if not self._model_dir.exists():
-            return []
-        return sorted(p.stem for p in self._model_dir.glob("*.onnx"))
+        return list_onnx_voices(self._model_dirs)
 
 
 class PiperCliBackend(SynthBackend):
@@ -125,17 +185,15 @@ class PiperCliBackend(SynthBackend):
     name = "piper-cli"
     real_audio = True
 
-    def __init__(self, model_dir: Path, binary: str = "piper"):
+    def __init__(self, model_dirs: list[Path], binary: str = "piper"):
         if shutil.which(binary) is None:
             raise FileNotFoundError(f"'{binary}' not found on PATH")
         self._binary = binary
-        self._model_dir = model_dir
-        self.model_dir = model_dir
+        self._model_dirs = model_dirs
+        self.model_dir = os.pathsep.join(str(d) for d in model_dirs)
 
     async def synthesize(self, text: str, voice: str, speed: float) -> SynthResult:
-        model_path = self._model_dir / f"{voice}.onnx"
-        if not model_path.exists():
-            raise FileNotFoundError(f"voice model not found: {model_path}")
+        model_path = find_voice_model(self._model_dirs, voice)
         if not _is_speakable(text):
             return SynthResult(wav_bytes=_silent_wav(), sample_rate=22050)
         with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
@@ -176,9 +234,7 @@ class PiperCliBackend(SynthBackend):
         return SynthResult(wav_bytes=wav_bytes, sample_rate=sample_rate)
 
     def list_voices(self) -> list[str]:
-        if not self._model_dir.exists():
-            return []
-        return sorted(p.stem for p in self._model_dir.glob("*.onnx"))
+        return list_onnx_voices(self._model_dirs)
 
 
 class SilentTestBackend(SynthBackend):
@@ -193,8 +249,9 @@ class SilentTestBackend(SynthBackend):
     name = "silent-test"
     real_audio = False
 
-    def __init__(self, model_dir: Path | None = None):
-        self.model_dir = model_dir
+    def __init__(self, model_dirs: list[Path] | None = None):
+        self._model_dirs = model_dirs or []
+        self.model_dir = os.pathsep.join(str(d) for d in self._model_dirs) if self._model_dirs else ""
         self._voices = ["test-voice-a", "test-voice-b"]
 
     async def synthesize(self, text: str, voice: str, speed: float) -> SynthResult:
@@ -214,14 +271,14 @@ class SilentTestBackend(SynthBackend):
         return list(self._voices)
 
 
-def select_backend(model_dir: Path) -> SynthBackend:
+def select_backend(model_dirs: list[Path]) -> SynthBackend:
     """Pick the best available backend, in order of preference."""
     try:
-        return PiperPythonBackend(model_dir)
+        return PiperPythonBackend(model_dirs)
     except ImportError:
         pass
     try:
-        return PiperCliBackend(model_dir)
+        return PiperCliBackend(model_dirs)
     except FileNotFoundError:
         pass
-    return SilentTestBackend(model_dir)
+    return SilentTestBackend(model_dirs)

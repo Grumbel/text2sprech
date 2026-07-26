@@ -15,7 +15,7 @@ import signal
 from pathlib import Path
 
 from protocol import FrameError, read_message, write_message
-from synth import SynthBackend, select_backend
+from synth import SynthBackend, default_user_voices_dir, resolve_model_dirs, select_backend
 
 log = logging.getLogger("piper_server")
 
@@ -94,19 +94,20 @@ def _ready_payload(backend: SynthBackend, default_voice: str) -> dict:
     is available so the GUI can warn instead of looking broken."""
     voices = backend.list_voices()
     model_dir = str(backend.model_dir) if backend.model_dir is not None else ""
+    drop_dir = str(default_user_voices_dir())
     warning = ""
     # Silent test backend: protocol works, but nothing is audible.
     if not backend.real_audio:
         warning = (
             "No Piper TTS install found — audio is silent. "
-            "Install the piper CLI or Python package, and place .onnx voice "
-            f"models in {model_dir or '~/.local/share/piper/voices'}."
+            "Install the piper CLI or Python package, then place matching "
+            f".onnx + .onnx.json voice files in {drop_dir}."
         )
     elif not voices:
         warning = (
-            "Piper is installed but no voice models were found"
-            + (f" in {model_dir}" if model_dir else "")
-            + ". Download .onnx voices (e.g. en_US-lessac-medium) into that directory."
+            "Piper is installed but no voice models were found. "
+            f"Drop .onnx + .onnx.json files into {drop_dir} "
+            "(or another directory listed under Preferences → Extra voice directories)."
         )
     # Prefer a voice that actually exists; fall back to the configured default.
     voice = default_voice if default_voice in voices else (voices[0] if voices else default_voice)
@@ -172,15 +173,16 @@ async def handle_connection(
         log.info("client disconnected: %s", peer)
 
 
-async def run_server(socket_path: str, model_dir: Path, default_voice: str) -> None:
-    backend = select_backend(model_dir)
+async def run_server(socket_path: str, model_dirs: list[Path], default_voice: str) -> None:
+    backend = select_backend(model_dirs)
     log.info("using synthesis backend: %s", backend.name)
+    log.info("voice model directories: %s", os.pathsep.join(str(d) for d in model_dirs))
     if backend.name == "silent-test":
         log.warning(
             "No Piper install found -- running with the SilentTestBackend. "
             "Install piper (Python package or CLI binary) and place .onnx "
             "voice models in %s to get real audio.",
-            model_dir,
+            default_user_voices_dir(),
         )
 
     if os.path.exists(socket_path):
@@ -216,7 +218,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--model-dir",
-        default=os.environ.get("TEXT2SPRECH_PIPER_MODELS", str(Path.home() / ".local/share/piper/voices")),
+        action="append",
+        default=None,
+        help=(
+            "Directory containing Piper .onnx voice models (repeatable). "
+            "Also reads TEXT2SPRECH_PIPER_MODELS (path-separator list). "
+            f"Default: {default_user_voices_dir()} and ~/.local/share/piper/voices"
+        ),
     )
     parser.add_argument("--default-voice", default="en_US-lessac-medium")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -226,7 +234,9 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    asyncio.run(run_server(args.socket, Path(args.model_dir), args.default_voice))
+    explicit = [Path(p) for p in args.model_dir] if args.model_dir else None
+    model_dirs = resolve_model_dirs(explicit)
+    asyncio.run(run_server(args.socket, model_dirs, args.default_voice))
 
 
 if __name__ == "__main__":

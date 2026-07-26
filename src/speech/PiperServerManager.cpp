@@ -3,8 +3,52 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QProcessEnvironment>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QUuid>
+
+namespace {
+
+QString defaultUserVoicesDir()
+{
+    // Matches piper_server/synth.py default_user_voices_dir().
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
+        .filePath(QStringLiteral("text2sprech/voices"));
+}
+
+QString legacyPiperVoicesDir()
+{
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
+        .filePath(QStringLiteral("piper/voices"));
+}
+
+QStringList voiceModelSearchPath()
+{
+    QStringList dirs;
+    QProcessEnvironment sysEnv = QProcessEnvironment::systemEnvironment();
+    const QString fromEnv = sysEnv.value(QStringLiteral("TEXT2SPRECH_PIPER_MODELS"));
+    if (!fromEnv.isEmpty()) {
+        dirs = fromEnv.split(QDir::listSeparator(), Qt::SkipEmptyParts);
+    } else {
+        dirs << defaultUserVoicesDir();
+        dirs << legacyPiperVoicesDir();
+    }
+
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("voices"));
+    const QStringList extra = settings.value(QStringLiteral("extraDirs")).toStringList();
+    settings.endGroup();
+    for (const QString &path : extra) {
+        const QString trimmed = path.trimmed();
+        if (!trimmed.isEmpty() && !dirs.contains(trimmed)) {
+            dirs << trimmed;
+        }
+    }
+    return dirs;
+}
+
+} // namespace
 
 PiperServerManager::PiperServerManager(QObject *parent) : QObject(parent)
 {
@@ -84,6 +128,16 @@ QString PiperServerManager::startWithUniqueSocket()
     args << "--socket" << socketPath;
     m_process.setProgram(command);
     m_process.setArguments(args);
+
+    // Tell the server where to look for *.onnx voices (defaults + Preferences extras).
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("TEXT2SPRECH_PIPER_MODELS"),
+               voiceModelSearchPath().join(QDir::listSeparator()));
+    m_process.setProcessEnvironment(env);
+
+    // Ensure the primary drop-in directory exists so users have somewhere obvious.
+    QDir().mkpath(defaultUserVoicesDir());
+
     m_process.start();
     if (!m_process.waitForStarted(3000)) {
         emit failedToStart(tr("piper-server failed to start (%1): %2")

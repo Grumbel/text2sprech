@@ -10,6 +10,7 @@
 class QComboBox;
 class QDoubleSpinBox;
 class QFontComboBox;
+class QPlainTextEdit;
 class QSpinBox;
 class QToolButton;
 
@@ -30,14 +31,19 @@ public:
     // availableVoices seeds the voice dropdown. default* values are the
     // startup defaults from the config file (not the live session).
     // defaultColors: invalid QColor entries mean "built-in theme default".
+    // defaultExtraVoiceDirs: optional extra model directories (one path per
+    // entry); the primary ~/.local/share/text2sprech/voices dir is always used.
     PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice, double defaultSpeed,
                        const QFont &defaultFont, const DocumentView::Colors &defaultColors,
-                       QWidget *parent = nullptr);
+                       const QStringList &defaultExtraVoiceDirs = {}, QWidget *parent = nullptr);
 
     QString voice() const;
     double speed() const;
     QFont font() const;
     DocumentView::Colors colors() const;
+    // Extra directories to scan for Piper .onnx voices (does not include the
+    // built-in user drop-in folder). Applied on next app start.
+    QStringList extraVoiceDirs() const;
 
 signals:
     // Emitted when the user clicks Apply. Caller should push getters into
@@ -66,6 +72,7 @@ private:
     QDoubleSpinBox *m_speedSpin;
     QFontComboBox *m_fontCombo;
     QSpinBox *m_fontSizeSpin;
+    QPlainTextEdit *m_extraVoiceDirsEdit = nullptr;
 
     ColorRow *m_textColor = nullptr;
     ColorRow *m_backgroundColor = nullptr;
