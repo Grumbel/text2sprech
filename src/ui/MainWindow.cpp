@@ -456,8 +456,8 @@ void MainWindow::pasteFromSource(QClipboard::Mode mode)
 
 void MainWindow::showWelcomeMessage()
 {
-    // Lightweight HTML so the empty state explains what to do without
-    // looking like a loaded document (no sentence index, not speakable).
+    // Same pipeline as Open/Paste: HTML for readable layout, then sentence
+    // split so Play / click-to-jump work on the welcome copy itself.
     const QString html = tr(
         "<div style='margin: 2.5em 2em; line-height: 1.55;'>"
         "<h2 style='font-weight: 600; margin-bottom: 0.4em;'>%1</h2>"
@@ -486,20 +486,11 @@ void MainWindow::showWelcomeMessage()
              tr("Playback controls sit at the bottom: previous, play/pause, stop, next."),
              tr("Speech stays on your machine via Piper — nothing is sent to the cloud."));
 
+    loadDocumentText(html, /*isHtml=*/true);
     m_showingWelcome = true;
-    m_playback->stop();
-    m_documentView->clearHighlight();
-    m_documentView->loadHtml(html);
-    // Do not index or offer the welcome copy for speech.
-    m_sentences.clear();
-    m_playback->loadSentences({});
-    m_documentView->setSentenceBoundaries({});
-    m_totalWords = 0;
-    m_cumulativeWordsBeforeSentence.clear();
-    m_currentSentenceIndex = -1;
-    setPlayingUi(false);
     refreshInfoLabel();
 }
+
 
 void MainWindow::loadStartupContentIfNeeded()
 {
