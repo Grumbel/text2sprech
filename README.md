@@ -104,12 +104,20 @@ voice=en_US-lessac-medium
 speed=1.25
 fontFamily=Noto Sans
 fontPointSize=13
+# Optional color overrides (HexArgb); omit to use built-in light/dark theme defaults
+# colorText=#FF1C1E22
+# colorBackground=#FFFFFFFF
+# colorPlaying=#FFC6E4BC
+# colorPreparing=#FFC4DCF2
+# colorStopped=#FFE2E4E8
+# colorHover=#5AA0B4D2
 ```
 
 `fontFamily` empty or absent leaves the widget's platform-default family
 alone; `fontPointSize` <= 0 or absent leaves its default size alone.
 Invalid `fontPointSize` values (outside 6-72, wrong type) are ignored with
-a warning printed to stderr, falling back to the default.
+a warning printed to stderr, falling back to the default. Color keys are
+written by Preferences when you pick a custom swatch; reset clears them.
 
 Or via the flake, once you can reach the network to resolve nixpkgs:
 
@@ -177,9 +185,9 @@ text2sprech/
   sentence applies a lighter yellow hover highlight so segment boundaries
   are still discoverable without painting the whole document.
 - **Config file** at (Linux) `~/.config/text2sprech/text2sprech.ini` lets you set
-  defaults for voice, speed, and text zoom level without passing CLI flags
-  every time. CLI flags always override it when given -- see the
-  `[general]` section format below.
+  defaults for voice, speed, font, and highlight colors without passing CLI
+  flags every time. CLI flags always override it when given -- see the
+  `[startup]` section under "Config file" above.
 - **Clicking a sentence highlights it immediately**, independent of
   playback state -- previously the highlight only appeared once audio
   actually started, so clicking while paused looked like it did nothing.
@@ -287,16 +295,12 @@ text2sprech/
   same as the toolbar buttons. Ctrl+V is intercepted before
   `QTextEdit::keyPressEvent()` since the widget is read-only and would
   otherwise silently do nothing.
-- **HTML cleanup is a known TODO, deliberately deferred.** Right now
-  `DocumentView::loadHtml()` hands pasted/opened HTML straight to Qt's
-  `QTextDocument::setHtml()`, which will happily apply inline font-size,
-  font-family, and other styling that fights with the user's own font
-  choice and generally makes no sense read aloud by a TTS engine. The plan
-  (not yet implemented, see the `TODO(HTML cleanup, deferred)` comment in
-  `DocumentView::loadHtml()`) is to sanitize down to a genuinely minimal
-  structural subset before parsing -- keeping things like headings, since
-  they're useful signal for future features (a chime on chapter change,
-  for instance), while dropping presentational styling entirely.
+- **HTML is sanitized before display** via `HtmlSanitizer::toSemanticHtml()`
+  (called from `MainWindow` on open/paste). Arbitrary paste is reduced to a
+  small structural subset — headings, paragraphs, lists, emphasis, code,
+  links — so author font sizes/families/colours do not fight the user's
+  Preferences font choice. `DocumentView::loadHtml()` only receives that
+  cleaned HTML.
 - **Status bar now has two permanent regions**: the left/normal area shows
   the current activity ("Starting piper-server…", "Preparing audio…",
   "Playing", "Paused", "Stopped", etc. -- see `MainWindow::setActivity()`),

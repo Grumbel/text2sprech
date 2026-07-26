@@ -92,13 +92,10 @@ public:
 
 public slots:
     // Sets the base font (family + point size) and applies it immediately.
-    // Unlike the old zoom-step approach, this doesn't need to be reapplied
-    // on every load: it's set on the QTextDocument itself
-    // (setDefaultFont()), which persists across loadPlainText()/loadHtml()
-    // calls since they reuse the same QTextDocument rather than replacing
-    // it. Plain, unstyled text picks this up dynamically; HTML content with
-    // its own explicit sizing (e.g. headings) won't -- see the HTML-cleanup
-    // TODO in MainWindow/README for narrowing what HTML styling gets kept.
+    // Set on the QTextDocument itself (setDefaultFont()), so it persists
+    // across loadPlainText()/loadHtml() (they reuse the same document).
+    // Plain/unstyled text picks this up; HtmlSanitizer strips author font
+    // sizing so pasted HTML does not fight the user's choice.
     void setBaseFont(const QFont &font);
 
     // Convenience +/- 1pt adjustments on the current base font, e.g. for

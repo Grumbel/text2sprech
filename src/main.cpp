@@ -15,12 +15,7 @@ namespace {
 // a config value just changes the *default* used when a flag isn't given
 // (implemented via QCommandLineOption's defaultValue, so parser.value()
 // naturally returns the config value when the user didn't pass the flag).
-//
-// Group name is "startup" (not "general"): QSettings IniFormat treats a
-// group called General specially and writes it as [%General], which on
-// repeated saves can leave duplicate sections in the .ini and make later
-// values unreadable. Old installs may still have [general] / [%General];
-// loadFileConfig() falls back to that group when "startup" is empty.
+// Keys live under the [startup] group.
 struct FileConfig {
     QString voice;
     double speed = 1.0;
@@ -39,15 +34,19 @@ QColor readColorKey(QSettings &settings, const QString &key)
     return c.isValid() ? c : QColor();
 }
 
-void readConfigGroup(QSettings &settings, FileConfig *config)
+FileConfig loadFileConfig()
 {
-    config->voice = settings.value(QStringLiteral("voice")).toString();
-    config->fontFamily = settings.value(QStringLiteral("fontFamily")).toString();
+    FileConfig config;
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("startup"));
+
+    config.voice = settings.value(QStringLiteral("voice")).toString();
+    config.fontFamily = settings.value(QStringLiteral("fontFamily")).toString();
 
     bool speedOk = false;
     double speed = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
     if (speedOk && speed >= 0.5 && speed <= 3.0) {
-        config->speed = speed;
+        config.speed = speed;
     } else if (settings.contains(QStringLiteral("speed"))) {
         qWarning().noquote() << "Config: invalid speed value" << settings.value(QStringLiteral("speed"))
                               << "(expected 0.5-3.0); using 1.0";
@@ -56,56 +55,21 @@ void readConfigGroup(QSettings &settings, FileConfig *config)
     bool sizeOk = false;
     int pointSize = settings.value(QStringLiteral("fontPointSize"), -1).toInt(&sizeOk);
     if (sizeOk && pointSize >= 6 && pointSize <= 72) {
-        config->fontPointSize = pointSize;
+        config.fontPointSize = pointSize;
     } else if (settings.contains(QStringLiteral("fontPointSize"))) {
         qWarning().noquote() << "Config: invalid fontPointSize value"
                               << settings.value(QStringLiteral("fontPointSize"))
                               << "(expected 6-72); using the widget default";
     }
 
-    config->colors.text = readColorKey(settings, QStringLiteral("colorText"));
-    config->colors.background = readColorKey(settings, QStringLiteral("colorBackground"));
-    config->colors.playing = readColorKey(settings, QStringLiteral("colorPlaying"));
-    config->colors.preparing = readColorKey(settings, QStringLiteral("colorPreparing"));
-    config->colors.stopped = readColorKey(settings, QStringLiteral("colorStopped"));
-    config->colors.hover = readColorKey(settings, QStringLiteral("colorHover"));
-}
+    config.colors.text = readColorKey(settings, QStringLiteral("colorText"));
+    config.colors.background = readColorKey(settings, QStringLiteral("colorBackground"));
+    config.colors.playing = readColorKey(settings, QStringLiteral("colorPlaying"));
+    config.colors.preparing = readColorKey(settings, QStringLiteral("colorPreparing"));
+    config.colors.stopped = readColorKey(settings, QStringLiteral("colorStopped"));
+    config.colors.hover = readColorKey(settings, QStringLiteral("colorHover"));
 
-bool groupHasAnyKeys(QSettings &settings)
-{
-    return settings.contains(QStringLiteral("voice"))
-        || settings.contains(QStringLiteral("speed"))
-        || settings.contains(QStringLiteral("fontFamily"))
-        || settings.contains(QStringLiteral("fontPointSize"))
-        || settings.contains(QStringLiteral("colorText"))
-        || settings.contains(QStringLiteral("colorBackground"))
-        || settings.contains(QStringLiteral("colorPlaying"))
-        || settings.contains(QStringLiteral("colorPreparing"))
-        || settings.contains(QStringLiteral("colorStopped"))
-        || settings.contains(QStringLiteral("colorHover"));
-}
-
-FileConfig loadFileConfig()
-{
-    FileConfig config;
-    QSettings settings;
-
-    settings.beginGroup(QStringLiteral("startup"));
-    const bool haveStartup = groupHasAnyKeys(settings);
-    if (haveStartup) {
-        readConfigGroup(settings, &config);
-    }
     settings.endGroup();
-
-    if (!haveStartup) {
-        // Migrate from the old "general" / [%General] group if present.
-        settings.beginGroup(QStringLiteral("general"));
-        if (groupHasAnyKeys(settings)) {
-            readConfigGroup(settings, &config);
-        }
-        settings.endGroup();
-    }
-
     return config;
 }
 

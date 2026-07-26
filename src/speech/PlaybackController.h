@@ -33,7 +33,10 @@ public:
     void next();
     void previous();
     void seekToSentence(int sentenceIndex);
-    void setSpeed(double speed); // forwarded to PiperClient::setSpeed + QMediaPlayer playback rate
+    // Speed is baked into synthesis (Piper length_scale), not playback rate.
+    // Cancels in-flight work and drops cached audio so upcoming sentences
+    // are re-synthesized at the new speed (same pattern as setVoice).
+    void setSpeed(double speed);
     // Cancels in-flight synthesis and discards any cached-but-unplayed audio
     // before switching voices -- without this, sentences already queued
     // ahead (lookahead prefetch) or mid-synthesis when the user switches
@@ -71,7 +74,6 @@ private:
 
     QVector<Sentence> m_sentences;
     int m_currentIndex = -1;
-    double m_speed = 1.0;
     int m_lookahead = 2;
 
     // audio for sentences we've already requested but not yet played

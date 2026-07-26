@@ -75,9 +75,8 @@ QString formatFragment(const QTextFragment &frag)
             continue;
         }
 
-        const bool bold = fmt.fontWeight() >= QFont::Bold
-            || fmt.fontWeight() == QFont::Bold
-            || fmt.fontWeight() >= 700;
+        // QFont::Bold is 75; some paths report CSS-style 700.
+        const bool bold = fmt.fontWeight() >= QFont::Bold || fmt.fontWeight() >= 700;
         const bool italic = fmt.fontItalic();
         const bool monospace =
             fmt.fontFixedPitch() || fmt.fontStyleHint() == QFont::Monospace;

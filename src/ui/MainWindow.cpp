@@ -30,7 +30,6 @@
 #include <QStyle>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QStandardPaths>
 #include <algorithm>
 
 #include "DocumentView.h"
@@ -712,10 +711,8 @@ void MainWindow::openPreferences()
 {
     // Seed from saved startup defaults (config file), not the live session.
     QSettings settings;
+    settings.beginGroup(QStringLiteral("startup"));
 
-    auto readString = [&settings](const QString &key) {
-        return settings.value(key).toString();
-    };
     auto readColor = [&settings](const QString &key) {
         const QString s = settings.value(key).toString();
         if (s.isEmpty()) {
@@ -724,54 +721,24 @@ void MainWindow::openPreferences()
         QColor c(s);
         return c.isValid() ? c : QColor();
     };
-    auto groupHasPrefs = [&settings] {
-        return settings.contains(QStringLiteral("voice")) || settings.contains(QStringLiteral("speed"))
-            || settings.contains(QStringLiteral("fontFamily"))
-            || settings.contains(QStringLiteral("fontPointSize"))
-            || settings.contains(QStringLiteral("colorText"))
-            || settings.contains(QStringLiteral("colorBackground"))
-            || settings.contains(QStringLiteral("colorPlaying"))
-            || settings.contains(QStringLiteral("colorPreparing"))
-            || settings.contains(QStringLiteral("colorStopped"))
-            || settings.contains(QStringLiteral("colorHover"));
-    };
 
-    QString defaultVoice;
-    double defaultSpeed = 1.0;
-    QString defaultFamily;
-    int defaultPointSize = 12;
+    const QString defaultVoice = settings.value(QStringLiteral("voice")).toString();
+    bool speedOk = false;
+    const double s = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
+    const double defaultSpeed = (speedOk && s >= 0.5 && s <= 3.0) ? s : 1.0;
+    const QString defaultFamily = settings.value(QStringLiteral("fontFamily")).toString();
+    bool sizeOk = false;
+    const int ps = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
+    const int defaultPointSize = (sizeOk && ps >= 6 && ps <= 72) ? ps : 12;
+
     DocumentView::Colors defaultColors;
-
-    auto readGroup = [&] {
-        defaultVoice = readString(QStringLiteral("voice"));
-        bool speedOk = false;
-        double s = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
-        defaultSpeed = (speedOk && s >= 0.5 && s <= 3.0) ? s : 1.0;
-        defaultFamily = readString(QStringLiteral("fontFamily"));
-        bool sizeOk = false;
-        int ps = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
-        defaultPointSize = (sizeOk && ps >= 6 && ps <= 72) ? ps : 12;
-        defaultColors.text = readColor(QStringLiteral("colorText"));
-        defaultColors.background = readColor(QStringLiteral("colorBackground"));
-        defaultColors.playing = readColor(QStringLiteral("colorPlaying"));
-        defaultColors.preparing = readColor(QStringLiteral("colorPreparing"));
-        defaultColors.stopped = readColor(QStringLiteral("colorStopped"));
-        defaultColors.hover = readColor(QStringLiteral("colorHover"));
-    };
-
-    settings.beginGroup(QStringLiteral("startup"));
-    const bool haveStartup = groupHasPrefs();
-    if (haveStartup) {
-        readGroup();
-    }
+    defaultColors.text = readColor(QStringLiteral("colorText"));
+    defaultColors.background = readColor(QStringLiteral("colorBackground"));
+    defaultColors.playing = readColor(QStringLiteral("colorPlaying"));
+    defaultColors.preparing = readColor(QStringLiteral("colorPreparing"));
+    defaultColors.stopped = readColor(QStringLiteral("colorStopped"));
+    defaultColors.hover = readColor(QStringLiteral("colorHover"));
     settings.endGroup();
-    if (!haveStartup) {
-        settings.beginGroup(QStringLiteral("general"));
-        if (groupHasPrefs()) {
-            readGroup();
-        }
-        settings.endGroup();
-    }
 
     QFont defaultFont;
     if (!defaultFamily.isEmpty()) {
@@ -817,10 +784,6 @@ void MainWindow::openPreferences()
     storeColor(QStringLiteral("colorPreparing"), chosenColors.preparing);
     storeColor(QStringLiteral("colorStopped"), chosenColors.stopped);
     storeColor(QStringLiteral("colorHover"), chosenColors.hover);
-    settings.endGroup();
-
-    settings.beginGroup(QStringLiteral("general"));
-    settings.remove(QString());
     settings.endGroup();
     settings.sync();
 

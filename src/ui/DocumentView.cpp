@@ -49,18 +49,9 @@ void DocumentView::loadPlainText(const QString &text)
 
 void DocumentView::loadHtml(const QString &html)
 {
-    // Qt's HTML subset (documented under QTextDocument::setHtml) covers
-    // headings, paragraphs, emphasis, and line breaks as required, but it
-    // is not a full browser engine -- CSS layout features like flexbox/grid
-    // are not supported. Fine for the "headings/paragraphs/emphasis/line
-    // breaks" scope in the proposal; flag it if richer HTML shows up.
-    //
-    // TODO(HTML cleanup, deferred): pasted/opened HTML can carry font-size,
-    // font-family, and other inline styling that makes no sense for a
-    // text-to-speech reader (and fights with the user's own font choice
-    // here). Worth narrowing to a genuinely minimal subset before this --
-    // structural tags like headings are useful signal (e.g. a chapter-
-    // change chime), but styling isn't. Not done yet; flagged for later.
+    // Expects already-sanitized HTML (see HtmlSanitizer::toSemanticHtml,
+    // called from MainWindow before this). Qt's HTML subset covers the
+    // structural tags we keep; it is not a full browser engine.
     setHtml(html);
 }
 

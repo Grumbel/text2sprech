@@ -87,10 +87,16 @@ void PlaybackController::seekToSentence(int index)
 
 void PlaybackController::setSpeed(double speed)
 {
-    m_speed = speed;
+    // Same cancel/clear/re-request pattern as setVoice: length_scale is
+    // baked into the WAV, so cached lookahead audio would keep the old
+    // speed. The sentence already playing is left alone.
+    m_client->cancelAll();
     m_client->setSpeed(speed);
-    m_player.setPlaybackRate(1.0); // speed is baked into synthesis (length_scale), not sped-up playback,
-                                   // to avoid pitch distortion from naive resampling.
+    m_player.setPlaybackRate(1.0); // never resample; avoid pitch distortion
+    m_audioCache.clear();
+    if (m_playing) {
+        requestLookahead();
+    }
 }
 
 void PlaybackController::setVoice(const QString &voice)
