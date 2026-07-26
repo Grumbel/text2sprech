@@ -140,8 +140,15 @@ async def run_server(socket_path: str, model_dir: Path, default_voice: str) -> N
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set_result, None)
 
-    async with server:
-        await stop
+    await stop
+    # Close the listening socket and do not wait long for client handlers —
+    # the GUI aborts its QLocalSocket on quit, but bound this so a stuck
+    # connection cannot delay process exit (and the parent QProcess wait).
+    server.close()
+    try:
+        await asyncio.wait_for(server.wait_closed(), timeout=0.3)
+    except asyncio.TimeoutError:
+        log.debug("server.wait_closed timed out; exiting anyway")
     log.info("server stopped")
 
 

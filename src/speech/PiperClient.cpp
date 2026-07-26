@@ -24,6 +24,15 @@ void PiperClient::connectToServer(const QString &socketPath)
     m_socket.connectToServer(socketPath);
 }
 
+void PiperClient::disconnectFromServer()
+{
+    // abort() closes without the graceful shutdown handshake -- fine here;
+    // we are tearing the whole session down.
+    m_socket.abort();
+    m_recvBuffer.clear();
+    m_havePendingLength = false;
+}
+
 bool PiperClient::isConnected() const
 {
     return m_socket.state() == QLocalSocket::ConnectedState;

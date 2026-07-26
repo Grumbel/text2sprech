@@ -22,6 +22,9 @@ public:
     explicit PiperClient(QObject *parent = nullptr);
 
     void connectToServer(const QString &socketPath);
+    // Drop the socket immediately (used on app quit so piper-server is
+    // not left waiting on an open client while we SIGTERM it).
+    void disconnectFromServer();
     bool isConnected() const;
 
     void requestSpeak(int id, const QString &text);

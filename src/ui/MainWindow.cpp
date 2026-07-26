@@ -157,6 +157,10 @@ void MainWindow::connectToPiperServer(const QString &socketPath)
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     m_playback->stop();
+    // Drop the Unix socket before SIGTERM'ing the server. Otherwise the
+    // server's asyncio shutdown waits for this still-open client connection
+    // and closeEvent blocks for the full process-wait timeout.
+    m_piperClient->disconnectFromServer();
     if (m_piperServerManager) {
         // Only torn down when we spawned it ourselves; an externally
         // provided --piper-socket server is left running for whoever

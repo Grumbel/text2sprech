@@ -99,10 +99,13 @@ void PiperServerManager::stop()
     if (!m_started || m_process.state() == QProcess::NotRunning) {
         return;
     }
-    m_process.terminate(); // SIGTERM on Unix; server.py handles this for clean shutdown
-    if (!m_process.waitForFinished(2000)) {
-        m_process.kill(); // SIGKILL if it didn't exit in time
-        m_process.waitForFinished(1000);
+    // SIGTERM first (server.py registers a handler). Keep the wait short so
+    // the GUI close path does not sit blocked for seconds -- if the process
+    // does not exit promptly, escalate to SIGKILL.
+    m_process.terminate();
+    if (!m_process.waitForFinished(400)) {
+        m_process.kill();
+        m_process.waitForFinished(200);
     }
     m_started = false;
 }
