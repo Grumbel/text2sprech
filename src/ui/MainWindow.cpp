@@ -15,6 +15,9 @@
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
+#include <QMenu>
+#include <QSizePolicy>
+#include <QSize>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QRegularExpression>
@@ -172,60 +175,106 @@ void MainWindow::setUpUi()
     centralLayout->setSpacing(0);
     centralLayout->addWidget(m_documentView, /*stretch=*/1);
 
-    // --- Top toolbar: document / settings only (no transport controls) ---
+    // --- Top toolbar: document → speech → reading aids → settings ----------
     auto *toolbar = addToolBar(tr("Controls"));
     toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+    toolbar->setIconSize(QSize(18, 18));
+    toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
-    auto *openAction = toolbar->addAction(tr("Open…"));
+    auto themeIcon = [](const QString &name, const QIcon &fallback) {
+        const QIcon icon = QIcon::fromTheme(name);
+        return icon.isNull() ? fallback : icon;
+    };
+
+    // Document: open + paste (clipboard is the common case; selection is a
+    // submenu entry so the bar stays short on platforms that support both).
+    auto *openAction = toolbar->addAction(
+        themeIcon(QStringLiteral("document-open"), style()->standardIcon(QStyle::SP_DialogOpenButton)),
+        tr("Open"));
+    openAction->setToolTip(tr("Open a text or HTML file"));
+    openAction->setShortcut(QKeySequence::Open);
     connect(openAction, &QAction::triggered, this, &MainWindow::openFile);
+    addAction(openAction); // so the shortcut works when the toolbar action isn't focused
 
-    auto *pasteClipboardAction = toolbar->addAction(tr("Paste Clipboard"));
-    connect(pasteClipboardAction, &QAction::triggered, this, [this] { pasteFromSource(QClipboard::Clipboard); });
+    auto *pasteClipboardAction = new QAction(
+        themeIcon(QStringLiteral("edit-paste"), style()->standardIcon(QStyle::SP_DialogResetButton)),
+        tr("Paste"), this);
+    pasteClipboardAction->setToolTip(tr("Paste from the clipboard (Ctrl+V)"));
+    connect(pasteClipboardAction, &QAction::triggered, this, [this] {
+        pasteFromSource(QClipboard::Clipboard);
+    });
 
-    auto *pasteSelectionAction = toolbar->addAction(tr("Paste Selection"));
+    auto *pasteSelectionAction = new QAction(tr("Paste selection"), this);
+    pasteSelectionAction->setToolTip(tr("Paste the primary selection (middle-click)"));
     if (!QApplication::clipboard()->supportsSelection()) {
         pasteSelectionAction->setEnabled(false);
         pasteSelectionAction->setToolTip(tr("Primary selection isn't supported on this platform"));
     }
-    connect(pasteSelectionAction, &QAction::triggered, this, [this] { pasteFromSource(QClipboard::Selection); });
+    connect(pasteSelectionAction, &QAction::triggered, this, [this] {
+        pasteFromSource(QClipboard::Selection);
+    });
+
+    auto *pasteMenu = new QMenu(this);
+    pasteMenu->addAction(pasteClipboardAction);
+    pasteMenu->addAction(pasteSelectionAction);
+    auto *pasteButton = new QToolButton(toolbar);
+    pasteButton->setDefaultAction(pasteClipboardAction);
+    pasteButton->setMenu(pasteMenu);
+    pasteButton->setPopupMode(QToolButton::MenuButtonPopup);
+    pasteButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    pasteButton->setIconSize(toolbar->iconSize());
+    toolbar->addWidget(pasteButton);
 
     toolbar->addSeparator();
 
-    toolbar->addWidget(new QLabel(tr("Voice: "), this));
-    m_voiceCombo = new QComboBox(this);
-    m_voiceCombo->setMinimumWidth(200);
+    // Speech: voice + speed in one compact cluster with a single label each.
+    auto *voiceLabel = new QLabel(tr("Voice"), toolbar);
+    voiceLabel->setContentsMargins(4, 0, 2, 0);
+    toolbar->addWidget(voiceLabel);
+    m_voiceCombo = new QComboBox(toolbar);
+    m_voiceCombo->setMinimumWidth(160);
+    m_voiceCombo->setMaximumWidth(280);
+    m_voiceCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_voiceCombo->setToolTip(tr("TTS voice for this session"));
     connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [this](const QString &voice) {
         m_playback->setVoice(voice);
     });
     toolbar->addWidget(m_voiceCombo);
 
-    m_speedSpin = new QDoubleSpinBox(this);
+    auto *speedLabel = new QLabel(tr("Speed"), toolbar);
+    speedLabel->setContentsMargins(8, 0, 2, 0);
+    toolbar->addWidget(speedLabel);
+    m_speedSpin = new QDoubleSpinBox(toolbar);
     m_speedSpin->setRange(0.5, 3.0);
     m_speedSpin->setSingleStep(0.25);
+    m_speedSpin->setDecimals(2);
+    m_speedSpin->setSuffix(tr("×"));
+    m_speedSpin->setMinimumWidth(72);
+    m_speedSpin->setToolTip(tr("Playback speed (also + / − keys)"));
     m_speedSpin->blockSignals(true);
     m_speedSpin->setValue(m_options.speed);
     m_speedSpin->blockSignals(false);
-    m_speedSpin->setPrefix(tr("Speed: "));
-    m_speedSpin->setSuffix(tr("x"));
     connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
     toolbar->addWidget(m_speedSpin);
 
     toolbar->addSeparator();
 
-    // Quick +/-1pt adjustments on the current font's point size; pick an
-    // exact font and size via Preferences instead.
-    auto *decreaseTextSizeAction = toolbar->addAction(tr("A-"));
-    decreaseTextSizeAction->setToolTip(tr("Decrease text size by 1pt (Ctrl+-)"));
+    // Reading: text size quick adjust (exact size lives in Preferences).
+    auto *decreaseTextSizeAction = toolbar->addAction(tr("A−"));
+    decreaseTextSizeAction->setToolTip(tr("Decrease text size (Ctrl+−)"));
     connect(decreaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
 
     auto *increaseTextSizeAction = toolbar->addAction(tr("A+"));
-    increaseTextSizeAction->setToolTip(tr("Increase text size by 1pt (Ctrl++)"));
+    increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
 
     toolbar->addSeparator();
 
-    auto *preferencesAction = toolbar->addAction(tr("Preferences…"));
-    preferencesAction->setToolTip(tr("Set default voice, speed, and text size"));
+    auto *preferencesAction = toolbar->addAction(
+        themeIcon(QStringLiteral("preferences-system"), style()->standardIcon(QStyle::SP_FileDialogDetailedView)),
+        tr("Preferences"));
+    preferencesAction->setToolTip(tr("Startup defaults (voice, speed, font, colors)"));
     connect(preferencesAction, &QAction::triggered, this, &MainWindow::openPreferences);
 
     connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
