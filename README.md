@@ -89,12 +89,13 @@ Defaults for voice, speed, and font (family + point size) live at (Linux)
 `~/.config/text2sprech/text2sprech.ini` (a plain text file, forced to that format on
 every platform rather than the Windows registry or macOS plist QSettings
 would otherwise use). **The Preferences dialog (toolbar button) is the
-only thing that writes to this file.** CLI flags (`--voice`, `--speed`)
-and the regular toolbar controls (voice combo, speed spinbox, A-/A+) are
-session-only by design -- they override the config file's defaults for
-the current run but never modify it. Only saving via Preferences persists
-a change for next time. CLI flags still win over the config file for the
-current session when given.
+only thing that writes to this file.** It shows and edits those saved
+startup defaults only -- not the live toolbar values -- and saving does
+not change the current session. CLI flags (`--voice`, `--speed`) and the
+regular toolbar controls (voice combo, speed spinbox, A-/A+) are
+session-only by design: they override the config file's defaults for the
+current run but never modify it. CLI flags still win over the config file
+for the current session when given.
 
 ```ini
 [general]
@@ -241,15 +242,10 @@ text2sprech/
   reverted back to two separate ones on request.)
 - **Preferences dialog** (`src/ui/PreferencesDialog`, opened via the
   toolbar's "Preferences…" button) is the only place in the app that writes
-  to the config file. It's seeded with the live session's current
-  voice/speed/font so opening it and hitting Save with no changes just
-  persists whatever's already in effect; hitting Save also applies the
-  chosen values live via the same session-only code paths the toolbar
-  controls themselves use (`QComboBox::setCurrentText`,
-  `QDoubleSpinBox::setValue`, `DocumentView::setBaseFont`) -- persistence
-  itself happens as one explicit extra step afterwards, kept deliberately
-  separate from those live-apply paths so nothing else in the app can
-  accidentally write to the config file. Three follow-up fixes after the
+  to the config file. It is seeded from the *saved* startup defaults (not
+  the live toolbar/session values), and Save writes those defaults back
+  without applying them to the current run -- toolbar and CLI remain the
+  only way to change the live session. Three follow-up fixes after the
   first pass:
   - **Font/size instead of zoom.** The dialog originally exposed the same
     abstract "zoom step" integer `DocumentView` tracked internally, which

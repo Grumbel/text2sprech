@@ -58,10 +58,10 @@ private slots:
     void onVoiceListReady(const QStringList &voices, const QString &current);
     void onSpeedChanged(double speed);
     void onPlaybackError(const QString &message);
-    // Opens PreferencesDialog; on Save, applies the chosen voice/speed/text
-    // size to the live session AND persists them to the config file -- the
-    // only place in the app that writes to it (see class comment on
-    // PreferencesDialog).
+    // Opens PreferencesDialog seeded from the config-file defaults.
+    // Save writes defaults to the config file only; Apply pushes the dialog
+    // values into the live session without persisting. This is the only
+    // place in the app that writes the config file.
     void openPreferences();
 
 private:

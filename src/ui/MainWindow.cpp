@@ -583,35 +583,58 @@ void MainWindow::onPlaybackError(const QString &message)
 
 void MainWindow::openPreferences()
 {
-    PreferencesDialog dialog(m_knownVoices, m_voiceCombo->currentText(), m_speedSpin->value(),
-                              m_documentView->baseFont(), this);
+    // Seed the dialog from the *saved* startup defaults in the config file,
+    // not from the live toolbar/session values. Preferences only edits what
+    // the next launch will use; the current run is left alone on Save.
+    QSettings settings;
+    settings.beginGroup("general");
+    const QString defaultVoice = settings.value(QStringLiteral("voice")).toString();
+    bool speedOk = false;
+    double defaultSpeed = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
+    if (!speedOk || defaultSpeed < 0.5 || defaultSpeed > 3.0) {
+        defaultSpeed = 1.0;
+    }
+    const QString defaultFamily = settings.value(QStringLiteral("fontFamily")).toString();
+    bool sizeOk = false;
+    int defaultPointSize = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
+    if (!sizeOk || defaultPointSize < 6 || defaultPointSize > 72) {
+        defaultPointSize = 12;
+    }
+    settings.endGroup();
+
+    QFont defaultFont;
+    if (!defaultFamily.isEmpty()) {
+        defaultFont.setFamily(defaultFamily);
+    }
+    defaultFont.setPointSize(defaultPointSize);
+
+    PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, this);
+
+    // Apply: push dialog values into the live session via the same paths the
+    // toolbar uses. Does not write the config file; dialog stays open.
+    connect(&dialog, &PreferencesDialog::applyRequested, this, [this, &dialog] {
+        if (!dialog.voice().isEmpty()) {
+            m_voiceCombo->setCurrentText(dialog.voice());
+        }
+        m_speedSpin->setValue(dialog.speed());
+        m_documentView->setBaseFont(dialog.font());
+        statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
+    });
+
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
-    // Apply live, via the same session-only code paths the toolbar
-    // controls themselves use (setCurrentText/setValue trigger their
-    // existing connected slots) -- none of these write to the config file
-    // on their own.
-    if (!dialog.voice().isEmpty()) {
-        m_voiceCombo->setCurrentText(dialog.voice());
-    }
-    m_speedSpin->setValue(dialog.speed());
+    // Save: persist defaults only -- does not change the live session.
     const QFont chosenFont = dialog.font();
-    m_documentView->setBaseFont(chosenFont);
-
-    // Persist. This is the only place in the app that writes to the config
-    // file -- CLI flags and the regular toolbar controls are session-only
-    // by design (see PreferencesDialog's note to the user).
-    QSettings settings;
     settings.beginGroup("general");
-    settings.setValue("voice", dialog.voice());
-    settings.setValue("speed", dialog.speed());
-    settings.setValue("fontFamily", chosenFont.family());
-    settings.setValue("fontPointSize", chosenFont.pointSize());
+    settings.setValue(QStringLiteral("voice"), dialog.voice());
+    settings.setValue(QStringLiteral("speed"), dialog.speed());
+    settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
+    settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
     settings.endGroup();
 
-    statusBar()->showMessage(tr("Preferences saved"), 3000);
+    statusBar()->showMessage(tr("Preferences saved (apply on next start)"), 3000);
 }
 
 void MainWindow::setActivity(const QString &text)
