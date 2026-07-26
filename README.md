@@ -98,7 +98,7 @@ current run but never modify it. CLI flags still win over the config file
 for the current session when given.
 
 ```ini
-[general]
+[startup]
 voice=en_US-lessac-medium
 speed=1.25
 fontFamily=Noto Sans

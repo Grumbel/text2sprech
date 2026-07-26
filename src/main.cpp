@@ -14,6 +14,12 @@ namespace {
 // a config value just changes the *default* used when a flag isn't given
 // (implemented via QCommandLineOption's defaultValue, so parser.value()
 // naturally returns the config value when the user didn't pass the flag).
+//
+// Group name is "startup" (not "general"): QSettings IniFormat treats a
+// group called General specially and writes it as [%General], which on
+// repeated saves can leave duplicate sections in the .ini and make later
+// values unreadable. Old installs may still have [general] / [%General];
+// loadFileConfig() falls back to that group when "startup" is empty.
 struct FileConfig {
     QString voice;
     double speed = 1.0;
@@ -21,34 +27,60 @@ struct FileConfig {
     int fontPointSize = -1; // <= 0 means "leave the widget's default size alone"
 };
 
-FileConfig loadFileConfig()
+void readConfigGroup(QSettings &settings, FileConfig *config)
 {
-    FileConfig config;
-    QSettings settings;
-    settings.beginGroup("general");
-
-    config.voice = settings.value("voice", QString()).toString();
-    config.fontFamily = settings.value("fontFamily", QString()).toString();
+    config->voice = settings.value(QStringLiteral("voice")).toString();
+    config->fontFamily = settings.value(QStringLiteral("fontFamily")).toString();
 
     bool speedOk = false;
-    double speed = settings.value("speed", 1.0).toDouble(&speedOk);
+    double speed = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
     if (speedOk && speed >= 0.5 && speed <= 3.0) {
-        config.speed = speed;
-    } else if (settings.contains("speed")) {
-        qWarning().noquote() << "Config: invalid speed value" << settings.value("speed")
+        config->speed = speed;
+    } else if (settings.contains(QStringLiteral("speed"))) {
+        qWarning().noquote() << "Config: invalid speed value" << settings.value(QStringLiteral("speed"))
                               << "(expected 0.5-3.0); using 1.0";
     }
 
     bool sizeOk = false;
-    int pointSize = settings.value("fontPointSize", -1).toInt(&sizeOk);
+    int pointSize = settings.value(QStringLiteral("fontPointSize"), -1).toInt(&sizeOk);
     if (sizeOk && pointSize >= 6 && pointSize <= 72) {
-        config.fontPointSize = pointSize;
-    } else if (settings.contains("fontPointSize")) {
-        qWarning().noquote() << "Config: invalid fontPointSize value" << settings.value("fontPointSize")
+        config->fontPointSize = pointSize;
+    } else if (settings.contains(QStringLiteral("fontPointSize"))) {
+        qWarning().noquote() << "Config: invalid fontPointSize value"
+                              << settings.value(QStringLiteral("fontPointSize"))
                               << "(expected 6-72); using the widget default";
     }
+}
 
+bool groupHasAnyKeys(QSettings &settings)
+{
+    return settings.contains(QStringLiteral("voice"))
+        || settings.contains(QStringLiteral("speed"))
+        || settings.contains(QStringLiteral("fontFamily"))
+        || settings.contains(QStringLiteral("fontPointSize"));
+}
+
+FileConfig loadFileConfig()
+{
+    FileConfig config;
+    QSettings settings;
+
+    settings.beginGroup(QStringLiteral("startup"));
+    const bool haveStartup = groupHasAnyKeys(settings);
+    if (haveStartup) {
+        readConfigGroup(settings, &config);
+    }
     settings.endGroup();
+
+    if (!haveStartup) {
+        // Migrate from the old "general" / [%General] group if present.
+        settings.beginGroup(QStringLiteral("general"));
+        if (groupHasAnyKeys(settings)) {
+            readConfigGroup(settings, &config);
+        }
+        settings.endGroup();
+    }
+
     return config;
 }
 
@@ -80,12 +112,12 @@ int main(int argc, char *argv[])
         QStringList() << "voice",
         "Voice to select on startup (must match a voice the piper-server reports). "
         "Falls back to the server's default and prints a warning if not found. "
-        "Defaults to the config file's [general] voice if set.",
+        "Defaults to the config file's [startup] voice if set.",
         "name", fileConfig.voice);
     QCommandLineOption speedOption(
         QStringList() << "speed",
         "Initial playback speed, 0.5-3.0. Defaults to the config file's "
-        "[general] speed if set, otherwise 1.0.",
+        "[startup] speed if set, otherwise 1.0.",
         "factor", QString::number(fileConfig.speed));
     QCommandLineOption autoplayOption(
         QStringList() << "autoplay",

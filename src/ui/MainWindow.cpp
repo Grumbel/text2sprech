@@ -584,23 +584,37 @@ void MainWindow::onPlaybackError(const QString &message)
 void MainWindow::openPreferences()
 {
     // Seed the dialog from the *saved* startup defaults in the config file,
-    // not from the live toolbar/session values. Preferences only edits what
-    // the next launch will use; the current run is left alone on Save.
+    // not from the live toolbar/session values. Group is "startup" (see
+    // main.cpp loadFileConfig); fall back to legacy "general" once.
     QSettings settings;
-    settings.beginGroup("general");
-    const QString defaultVoice = settings.value(QStringLiteral("voice")).toString();
-    bool speedOk = false;
-    double defaultSpeed = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
-    if (!speedOk || defaultSpeed < 0.5 || defaultSpeed > 3.0) {
-        defaultSpeed = 1.0;
-    }
-    const QString defaultFamily = settings.value(QStringLiteral("fontFamily")).toString();
-    bool sizeOk = false;
-    int defaultPointSize = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
-    if (!sizeOk || defaultPointSize < 6 || defaultPointSize > 72) {
-        defaultPointSize = 12;
-    }
+
+    auto readDefaults = [&settings](QString *voice, double *speed, QString *family, int *pointSize) {
+        *voice = settings.value(QStringLiteral("voice")).toString();
+        bool speedOk = false;
+        double s = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
+        *speed = (speedOk && s >= 0.5 && s <= 3.0) ? s : 1.0;
+        *family = settings.value(QStringLiteral("fontFamily")).toString();
+        bool sizeOk = false;
+        int ps = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
+        *pointSize = (sizeOk && ps >= 6 && ps <= 72) ? ps : 12;
+        return settings.contains(QStringLiteral("voice")) || settings.contains(QStringLiteral("speed"))
+            || settings.contains(QStringLiteral("fontFamily"))
+            || settings.contains(QStringLiteral("fontPointSize"));
+    };
+
+    QString defaultVoice;
+    double defaultSpeed = 1.0;
+    QString defaultFamily;
+    int defaultPointSize = 12;
+
+    settings.beginGroup(QStringLiteral("startup"));
+    const bool haveStartup = readDefaults(&defaultVoice, &defaultSpeed, &defaultFamily, &defaultPointSize);
     settings.endGroup();
+    if (!haveStartup) {
+        settings.beginGroup(QStringLiteral("general"));
+        readDefaults(&defaultVoice, &defaultSpeed, &defaultFamily, &defaultPointSize);
+        settings.endGroup();
+    }
 
     QFont defaultFont;
     if (!defaultFamily.isEmpty()) {
@@ -625,14 +639,21 @@ void MainWindow::openPreferences()
         return;
     }
 
-    // Save: persist defaults only -- does not change the live session.
+    // Save under [startup] only. Drop any legacy [general]/[%General] keys so
+    // the .ini does not keep accumulating duplicate sections (IniFormat's
+    // special handling of a group named General was the source of that).
     const QFont chosenFont = dialog.font();
-    settings.beginGroup("general");
+    settings.beginGroup(QStringLiteral("startup"));
     settings.setValue(QStringLiteral("voice"), dialog.voice());
     settings.setValue(QStringLiteral("speed"), dialog.speed());
     settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
     settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
     settings.endGroup();
+
+    settings.beginGroup(QStringLiteral("general"));
+    settings.remove(QString()); // all keys in this group
+    settings.endGroup();
+    settings.sync();
 
     statusBar()->showMessage(tr("Preferences saved (apply on next start)"), 3000);
 }
