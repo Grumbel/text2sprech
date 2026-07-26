@@ -359,6 +359,10 @@ void MainWindow::setUpUi()
     // Right/permanent area: length + position estimate, always visible.
     m_infoLabel = new QLabel(this);
     statusBar()->addPermanentWidget(m_infoLabel);
+
+    // Visible immediately while the piper-server connects; replaced if
+    // startup paste/file loads, otherwise stays until the user opens/pastes.
+    showWelcomeMessage();
 }
 
 void MainWindow::setUpShortcuts()
@@ -436,6 +440,53 @@ void MainWindow::pasteFromSource(QClipboard::Mode mode)
     }
 }
 
+void MainWindow::showWelcomeMessage()
+{
+    // Lightweight HTML so the empty state explains what to do without
+    // looking like a loaded document (no sentence index, not speakable).
+    const QString html = tr(
+        "<div style='margin: 2.5em 2em; line-height: 1.55;'>"
+        "<h2 style='font-weight: 600; margin-bottom: 0.4em;'>%1</h2>"
+        "<p style='opacity: 0.9; margin-top: 0;'>%2</p>"
+        "<ul style='margin-top: 1.2em; padding-left: 1.4em;'>"
+        "<li style='margin-bottom: 0.55em;'>%3</li>"
+        "<li style='margin-bottom: 0.55em;'>%4</li>"
+        "<li style='margin-bottom: 0.55em;'>%5</li>"
+        "<li style='margin-bottom: 0.55em;'>%6</li>"
+        "<li style='margin-bottom: 0.55em;'>%7</li>"
+        "</ul>"
+        "<p style='opacity: 0.75; margin-top: 1.6em;'>%8</p>"
+        "</div>")
+        .arg(tr("text2sprech"),
+             tr("A local text-to-speech reader with live sentence highlighting."),
+             tr("<b>Open</b> a text or HTML file, or <b>Paste</b> from the clipboard "
+                "(Ctrl+V). On Linux you can also paste the primary selection "
+                "(middle-click or the Paste menu)."),
+             tr("Press <b>Play</b> (Space) to hear the document. The current sentence "
+                "is highlighted as it is spoken."),
+             tr("Click any sentence, or use the <b>Left</b>/<b>Right</b> arrow keys, "
+                "to jump. Previous / Next on the transport bar do the same."),
+             tr("Choose <b>Voice</b> and <b>Speed</b> on the toolbar for this session. "
+                "<b>Preferences</b> sets defaults for the next launch (and can Apply "
+                "them now)."),
+             tr("Playback controls sit at the bottom: previous, play/pause, stop, next."),
+             tr("Speech stays on your machine via Piper — nothing is sent to the cloud."));
+
+    m_showingWelcome = true;
+    m_playback->stop();
+    m_documentView->clearHighlight();
+    m_documentView->loadHtml(html);
+    // Do not index or offer the welcome copy for speech.
+    m_sentences.clear();
+    m_playback->loadSentences({});
+    m_documentView->setSentenceBoundaries({});
+    m_totalWords = 0;
+    m_cumulativeWordsBeforeSentence.clear();
+    m_currentSentenceIndex = -1;
+    setPlayingUi(false);
+    refreshInfoLabel();
+}
+
 void MainWindow::loadStartupContentIfNeeded()
 {
     if (m_startupContentLoaded) {
@@ -460,6 +511,7 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
 {
     m_playback->stop();
     m_documentView->clearHighlight();
+    m_showingWelcome = false;
 
     if (isHtml) {
         m_documentView->loadHtml(content);
@@ -761,7 +813,7 @@ void MainWindow::setActivity(const QString &text)
 void MainWindow::refreshInfoLabel()
 {
     if (m_sentences.isEmpty()) {
-        m_infoLabel->setText(tr("No document loaded"));
+        m_infoLabel->setText(m_showingWelcome ? tr("Welcome") : tr("No document loaded"));
         return;
     }
 

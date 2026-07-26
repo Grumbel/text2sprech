@@ -84,6 +84,8 @@ private:
     // selection/clipboard, or an initial file), once the piper-server
     // connection is actually up. Only ever acts once.
     void loadStartupContentIfNeeded();
+    // Placeholder copy shown until the user opens or pastes a document.
+    void showWelcomeMessage();
     // Persistent "what's happening right now" indicator (left side of the
     // status bar) -- distinct from the transient statusBar()->showMessage()
     // notifications, which briefly cover it and then reveal it again.
@@ -111,6 +113,7 @@ private:
 
     QVector<Sentence> m_sentences;
     bool m_startupContentLoaded = false;
+    bool m_showingWelcome = false;
 
     // Last voice list reported by the server ("ready" message) -- used to
     // populate PreferencesDialog's voice dropdown.
