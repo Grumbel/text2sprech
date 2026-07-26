@@ -89,23 +89,29 @@ void DocumentView::clearHighlight()
 
 void DocumentView::applyHighlightColors()
 {
-    // Fixed colors rather than palette().highlight() so we stay readable
-    // over any theme and avoid Qt's native blue/white selection look.
-    // Playing: saturated amber -- "this is speaking now"
-    // Preparing: soft sky blue -- "buffering / synthesizing"
-    // Stopped: muted slate -- selected or paused, not active
+    // Theme-aware, pastels-on-light / mid-tones-on-dark chosen for body-text
+    // contrast rather than pure saturation. Goal: you can keep reading the
+    // highlighted sentence without the background fighting the glyphs.
+    //
+    // Playing  -- soft green: calm "this is being spoken" cue
+    // Preparing -- soft blue: distinct from playing, lower urgency
+    // Stopped  -- neutral gray: marks position without looking active
+    const bool dark = palette().color(QPalette::Base).lightness() < 128;
     QColor bg;
-    QColor fg(20, 20, 20);
+    QColor fg;
     switch (m_highlightState) {
     case HighlightState::Playing:
-        bg = QColor(255, 152, 0);
+        bg = dark ? QColor(46, 110, 62) : QColor(198, 228, 188);
+        fg = dark ? QColor(232, 245, 233) : QColor(20, 40, 24);
         break;
     case HighlightState::Preparing:
-        bg = QColor(100, 170, 255);
+        bg = dark ? QColor(40, 78, 120) : QColor(196, 220, 242);
+        fg = dark ? QColor(227, 240, 252) : QColor(18, 36, 56);
         break;
     case HighlightState::Stopped:
     default:
-        bg = QColor(170, 175, 185);
+        bg = dark ? QColor(62, 66, 72) : QColor(226, 228, 232);
+        fg = dark ? QColor(230, 232, 236) : QColor(28, 30, 34);
         break;
     }
     m_currentHighlight.format.setBackground(bg);
@@ -227,10 +233,11 @@ void DocumentView::setHoverSentence(int index)
     }
 
     QTextEdit::ExtraSelection selection;
-    // Softer than the active highlight so hover is a cue, not competing
-    // with the current sentence. Tuned for light and dark themes.
-    bool isDarkTheme = palette().color(QPalette::Base).lightness() < 128;
-    QColor hoverBg = isDarkTheme ? QColor(180, 140, 40, 90) : QColor(255, 230, 150, 160);
+    // Subtle underline-like wash -- just enough to show the sentence
+    // boundary under the cursor without competing with the current
+    // highlight (which is always drawn on top).
+    const bool dark = palette().color(QPalette::Base).lightness() < 128;
+    const QColor hoverBg = dark ? QColor(120, 140, 170, 70) : QColor(160, 180, 210, 90);
     selection.format.setBackground(hoverBg);
     QTextCursor cursor(document());
     cursor.setPosition(s.start);
