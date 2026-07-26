@@ -35,6 +35,7 @@
 
 #include "DocumentView.h"
 #include "PreferencesDialog.h"
+#include "document/HtmlSanitizer.h"
 #include "document/SentenceSplitter.h"
 #include "speech/PiperClient.h"
 #include "speech/PiperServerManager.h"
@@ -523,7 +524,9 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
     m_showingWelcome = false;
 
     if (isHtml) {
-        m_documentView->loadHtml(content);
+        // Reader-mode-ish subset: headings, paragraphs, lists, emphasis,
+        // code, links — no colours, font sizes, families, or images.
+        m_documentView->loadHtml(HtmlSanitizer::toSemanticHtml(content));
     } else {
         m_documentView->loadPlainText(content);
     }

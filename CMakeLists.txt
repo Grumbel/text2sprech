@@ -20,6 +20,8 @@ add_executable(text2sprech
     src/document/SentenceSplitter.cpp
     src/document/SentenceSplitter.h
     src/document/Sentence.h
+    src/document/HtmlSanitizer.cpp
+    src/document/HtmlSanitizer.h
     src/speech/PiperClient.cpp
     src/speech/PiperClient.h
     src/speech/PiperServerManager.cpp
