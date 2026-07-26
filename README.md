@@ -169,12 +169,11 @@ text2sprech/
   break gets further subdivided at whitespace -- see the docstring in
   `piper_server/sentence_splitter.py` for the tradeoffs this introduces
   (hard-wrapped text files get chopped per line).
-- **Every sentence gets a background tint** in `DocumentView`, alternating
-  between two yellow-family shades (pale butter yellow / warmer gold,
-  tuned separately for light and dark themes). An earlier version of this
-  only tinted every other sentence and left the rest at the plain
-  background, which showed up as plain white in a light theme -- fixed so
-  every sentence is now colored.
+- **Sentence text stays plain** in `DocumentView` -- no static background
+  tint on every segment. Only the currently playing / click-selected
+  sentence gets the amber highlight; hovering the mouse over any other
+  sentence applies a lighter yellow hover highlight so segment boundaries
+  are still discoverable without painting the whole document.
 - **Config file** at (Linux) `~/.config/text2sprech/text2sprech.ini` lets you set
   defaults for voice, speed, and text zoom level without passing CLI flags
   every time. CLI flags always override it when given -- see the

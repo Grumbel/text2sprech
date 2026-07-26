@@ -1,5 +1,6 @@
 #include "DocumentView.h"
 
+#include <QEvent>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMouseEvent>
@@ -8,11 +9,15 @@
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <algorithm>
 
 DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
 {
     setReadOnly(true);
     setLineWrapMode(QTextEdit::WidgetWidth);
+    // Needed so mouseMoveEvent fires without a button held -- required for
+    // per-sentence hover highlighting.
+    setMouseTracking(true);
     m_baseFont = font(); // whatever the platform/style default is, until setBaseFont() is called
 }
 
@@ -66,34 +71,10 @@ void DocumentView::decreaseTextSize()
 
 void DocumentView::setSentenceBoundaries(const QVector<Sentence> &sentences)
 {
-    m_tintSelections.clear();
-
-    // Every sentence gets tinted now (alternating between two shades)
-    // rather than alternating tint/no-tint -- leaving every other sentence
-    // at the plain background meant half of them still showed up white.
-    // Both shades are yellow-family so they read as one cohesive highlight
-    // scheme rather than two unrelated colors: a pale butter yellow and a
-    // warmer gold/amber, tuned separately for light vs. dark themes so
-    // neither washes out or overwhelms the base background.
-    bool isDarkTheme = palette().color(QPalette::Base).lightness() < 128;
-    QColor colorA = isDarkTheme ? QColor(133, 108, 8, 110) : QColor(255, 247, 191, 200);  // pale butter yellow
-    QColor colorB = isDarkTheme ? QColor(168, 122, 10, 110) : QColor(255, 214, 92, 200);  // warmer gold/amber
-
-    const int charCount = document()->characterCount();
-    for (int i = 0; i < sentences.size(); ++i) {
-        const Sentence &s = sentences[i];
-        if (s.start < 0 || s.end > charCount || s.start >= s.end) {
-            continue;
-        }
-        QTextEdit::ExtraSelection selection;
-        selection.format.setBackground(i % 2 == 0 ? colorA : colorB);
-        QTextCursor cursor(document());
-        cursor.setPosition(s.start);
-        cursor.setPosition(s.end, QTextCursor::KeepAnchor);
-        selection.cursor = cursor;
-        m_tintSelections.append(selection);
-    }
-
+    m_sentences = sentences;
+    // Drop any hover that referred to the previous document's ranges.
+    m_hasHoverHighlight = false;
+    m_hoverSentenceIndex = -1;
     refreshExtraSelections();
 }
 
@@ -105,11 +86,13 @@ void DocumentView::clearHighlight()
 
 void DocumentView::refreshExtraSelections()
 {
-    QList<QTextEdit::ExtraSelection> combined = m_tintSelections;
+    QList<QTextEdit::ExtraSelection> combined;
+    // Hover first, current on top -- so the active/playing sentence always
+    // wins when the mouse is over it.
+    if (m_hasHoverHighlight) {
+        combined.append(m_hoverHighlight);
+    }
     if (m_hasCurrentHighlight) {
-        // Drawn last so the "currently playing"/"clicked" highlight sits
-        // visibly on top of the alternating tint rather than blending
-        // with it.
         combined.append(m_currentHighlight);
     }
     setExtraSelections(combined);
@@ -124,11 +107,8 @@ void DocumentView::highlightRange(int start, int end)
     QTextEdit::ExtraSelection selection;
     // Fixed, high-contrast colors rather than palette().highlight()/
     // highlightedText() -- the default blue-background/white-text
-    // combination was hard to read (and, layered over the yellow tint
-    // stripes, lower-contrast than it looks in isolation). A saturated
-    // amber with near-black text stays clearly readable regardless of the
-    // underlying tint or the app's light/dark theme, and reads as "this is
-    // the active one" against the paler yellow tints.
+    // combination was hard to read. A saturated amber with near-black
+    // text stays clearly readable regardless of light/dark theme.
     selection.format.setBackground(QColor(255, 152, 0));
     selection.format.setForeground(QColor(20, 20, 20));
     QTextCursor cursor(document());
@@ -164,6 +144,63 @@ void DocumentView::centerCursor(const QTextCursor &cursor)
     vbar->setValue(vbar->value() + delta);
 }
 
+int DocumentView::sentenceIndexForOffset(int offset) const
+{
+    if (m_sentences.isEmpty()) {
+        return -1;
+    }
+    auto it = std::upper_bound(
+        m_sentences.begin(), m_sentences.end(), offset,
+        [](int off, const Sentence &s) { return off < s.end; });
+    if (it == m_sentences.end()) {
+        return -1;
+    }
+    const int index = static_cast<int>(it - m_sentences.begin());
+    // upper_bound found the first sentence whose end is past offset; still
+    // need the offset to actually fall inside [start, end).
+    if (offset < m_sentences[index].start) {
+        return -1;
+    }
+    return index;
+}
+
+void DocumentView::setHoverSentence(int index)
+{
+    if (index == m_hoverSentenceIndex) {
+        return;
+    }
+    m_hoverSentenceIndex = index;
+
+    if (index < 0 || index >= m_sentences.size()) {
+        m_hasHoverHighlight = false;
+        refreshExtraSelections();
+        return;
+    }
+
+    const Sentence &s = m_sentences[index];
+    const int charCount = document()->characterCount();
+    if (s.start < 0 || s.end > charCount || s.start >= s.end) {
+        m_hasHoverHighlight = false;
+        refreshExtraSelections();
+        return;
+    }
+
+    QTextEdit::ExtraSelection selection;
+    // Softer than the active amber so hover is a cue, not competing with
+    // the currently-playing sentence. Tuned for light and dark themes.
+    bool isDarkTheme = palette().color(QPalette::Base).lightness() < 128;
+    QColor hoverBg = isDarkTheme ? QColor(180, 140, 40, 90) : QColor(255, 230, 150, 160);
+    selection.format.setBackground(hoverBg);
+    QTextCursor cursor(document());
+    cursor.setPosition(s.start);
+    cursor.setPosition(s.end, QTextCursor::KeepAnchor);
+    selection.cursor = cursor;
+
+    m_hoverHighlight = selection;
+    m_hasHoverHighlight = true;
+    refreshExtraSelections();
+}
+
 void DocumentView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::MiddleButton) {
@@ -179,6 +216,19 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
     QTextEdit::mousePressEvent(event);
     QTextCursor cursor = cursorForPosition(event->pos());
     emit positionClicked(cursor.position());
+}
+
+void DocumentView::mouseMoveEvent(QMouseEvent *event)
+{
+    QTextEdit::mouseMoveEvent(event);
+    const QTextCursor cursor = cursorForPosition(event->pos());
+    setHoverSentence(sentenceIndexForOffset(cursor.position()));
+}
+
+void DocumentView::leaveEvent(QEvent *event)
+{
+    setHoverSentence(-1);
+    QTextEdit::leaveEvent(event);
 }
 
 void DocumentView::keyPressEvent(QKeyEvent *event)

@@ -18,13 +18,12 @@
 // after setHtml/setPlainText has already run), matching what
 // SentenceSplitter produces when run on document()->toPlainText().
 //
-// Two layers of ExtraSelections are combined (see refreshExtraSelections()):
-//  1. A static background tint on every sentence, alternating between two
-//     yellow-family shades (pale butter yellow / warmer gold) so segment
-//     boundaries are visible at a glance, independent of playback.
-//  2. The single "currently playing" highlight, drawn on top of the tints
-//     (also used for click-to-select, so clicking anywhere in a sentence
-//     highlights that whole sentence even when nothing is playing).
+// Two optional ExtraSelections are combined (see refreshExtraSelections()):
+//  1. The single "currently playing" / click-selected highlight (amber).
+//  2. A lighter hover highlight on the sentence under the mouse cursor,
+//     drawn underneath the current highlight when both overlap so the
+//     active sentence always wins visually.
+// Sentence bodies themselves stay un-tinted (plain document background).
 class DocumentView : public QTextEdit {
     Q_OBJECT
 public:
@@ -33,10 +32,11 @@ public:
     void loadPlainText(const QString &text);
     void loadHtml(const QString &html);
 
-    // Renders a background tint on every sentence, alternating between two
-    // yellow-family shades. Call after (re)loading a document and
-    // re-splitting it into sentences. Pass an empty vector to clear the
-    // tinting (e.g. before loading new content).
+    // Stores sentence ranges for hover hit-testing and clears any previous
+    // hover highlight. Call after (re)loading a document and re-splitting
+    // it into sentences. Pass an empty vector to clear boundaries (e.g.
+    // before loading new content). Does not paint static per-sentence
+    // background tints -- text stays plain until hovered or selected.
     void setSentenceBoundaries(const QVector<Sentence> &sentences);
 
     // start/end are plain-text offsets (end exclusive), matching Sentence.
@@ -83,14 +83,26 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 
 private:
     void refreshExtraSelections();
     void centerCursor(const QTextCursor &cursor);
+    // Maps a plain-text offset to the sentence that contains it, or -1.
+    int sentenceIndexForOffset(int offset) const;
+    void setHoverSentence(int index);
 
-    QList<QTextEdit::ExtraSelection> m_tintSelections;
+    // Sentence ranges for hover hit-testing (not painted as static tints).
+    QVector<Sentence> m_sentences;
+
     QTextEdit::ExtraSelection m_currentHighlight;
     bool m_hasCurrentHighlight = false;
+
+    QTextEdit::ExtraSelection m_hoverHighlight;
+    bool m_hasHoverHighlight = false;
+    int m_hoverSentenceIndex = -1;
+
     QFont m_baseFont;
 };
