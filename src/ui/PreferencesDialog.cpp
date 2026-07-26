@@ -1,5 +1,6 @@
 #include "PreferencesDialog.h"
 
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -11,11 +12,14 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include <QStyle>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
 PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice,
-                                      double defaultSpeed, const QFont &defaultFont, QWidget *parent)
+                                      double defaultSpeed, const QFont &defaultFont,
+                                      const DocumentView::Colors &defaultColors, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
@@ -24,9 +28,6 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_voiceCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_voiceCombo->addItems(availableVoices);
     if (!defaultVoice.isEmpty() && !availableVoices.contains(defaultVoice)) {
-        // Saved default isn't in the list yet (e.g. server hasn't reported
-        // voices this session, or the voice was removed) -- keep it visible
-        // rather than silently dropping the stored preference.
         m_voiceCombo->addItem(defaultVoice);
     }
     int voiceIndex = m_voiceCombo->findText(defaultVoice);
@@ -42,9 +43,6 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_speedSpin->setSuffix(tr("x"));
     m_speedSpin->setValue(defaultSpeed);
 
-    // Real font family + point size, not an abstract "zoom" level -- a
-    // QFontComboBox previews each entry in its own typeface, which reads
-    // more clearly than a plain text list of family names would.
     m_fontCombo = new QFontComboBox(this);
     m_fontCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_fontCombo->setCurrentFont(defaultFont);
@@ -55,10 +53,6 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_fontSizeSpin->setSuffix(tr(" pt"));
     m_fontSizeSpin->setValue(defaultFont.pointSize() > 0 ? defaultFont.pointSize() : 12);
 
-    // Family and size read as one concept ("Font: Lessac, 12pt"), so they
-    // share a row -- a QWidget wrapper (not a bare QHBoxLayout added
-    // directly as the field) so QFormLayout's field-growth policy applies
-    // to it the same predictable way it does to a plain widget.
     auto *fontRow = new QWidget(this);
     auto *fontRowLayout = new QHBoxLayout(fontRow);
     fontRowLayout->setContentsMargins(0, 0, 0, 0);
@@ -74,15 +68,27 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     form->addRow(tr("Speed:"), m_speedSpin);
     form->addRow(tr("Font:"), fontRow);
 
-    // Plain QFont-based styling only -- setStyleSheet() on even one widget
-    // in a dialog can push Qt onto its CSS-based style engine for the
-    // whole subtree instead of the native platform style, which previously
-    // caused text to render in a mismatched, barely-readable color
-    // combination here.
+    // Theme defaults for reset + swatch preview when no override is stored.
+    const bool dark = palette().color(QPalette::Base).lightness() < 128;
+    const DocumentView::Colors themeDefaults = DocumentView::builtinDefaults(dark);
+
+    form->addRow(new QLabel(tr("Colors"), this));
+    m_textColor = addColorRow(form, tr("Text:"), defaultColors.text, themeDefaults.text);
+    m_backgroundColor =
+        addColorRow(form, tr("Background:"), defaultColors.background, themeDefaults.background);
+    m_playingColor =
+        addColorRow(form, tr("Playing highlight:"), defaultColors.playing, themeDefaults.playing);
+    m_preparingColor =
+        addColorRow(form, tr("Preparing highlight:"), defaultColors.preparing, themeDefaults.preparing);
+    m_stoppedColor =
+        addColorRow(form, tr("Stopped highlight:"), defaultColors.stopped, themeDefaults.stopped);
+    m_hoverColor = addColorRow(form, tr("Hover highlight:"), defaultColors.hover, themeDefaults.hover);
+
     auto *note = new QLabel(
         tr("Save writes these as the defaults for the next time %1 starts "
            "(current session unchanged). Apply pushes them into the current "
-           "session only and does not update the saved defaults.")
+           "session only and does not update the saved defaults. "
+           "The reset button on each color restores the built-in theme default.")
             .arg(QStringLiteral("text2sprech")),
         this);
     note->setWordWrap(true);
@@ -94,7 +100,6 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     auto *saveBtn = buttons->addButton(QDialogButtonBox::Save);
     auto *applyBtn = buttons->addButton(QDialogButtonBox::Apply);
     buttons->addButton(QDialogButtonBox::Cancel);
-    // Make Save the default action (Enter), not Apply.
     saveBtn->setDefault(true);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -107,8 +112,77 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     layout->addWidget(note);
     layout->addWidget(buttons);
 
-    setMinimumWidth(460);
+    setMinimumWidth(500);
     adjustSize();
+}
+
+PreferencesDialog::ColorRow *PreferencesDialog::addColorRow(QFormLayout *form, const QString &label,
+                                                            const QColor &value,
+                                                            const QColor &themeDefault)
+{
+    auto *row = new ColorRow;
+    row->label = label;
+    row->value = value;
+    row->themeDefault = themeDefault;
+
+    auto *field = new QWidget(this);
+    auto *rowLayout = new QHBoxLayout(field);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setSpacing(6);
+
+    row->swatch = new QToolButton(field);
+    row->swatch->setAutoRaise(false);
+    row->swatch->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    row->swatch->setFixedSize(56, 28);
+    row->swatch->setToolTip(tr("Choose color"));
+    row->swatch->setFocusPolicy(Qt::TabFocus);
+    connect(row->swatch, &QToolButton::clicked, this, [this, row] { pickColor(row); });
+
+    row->reset = new QToolButton(field);
+    row->reset->setAutoRaise(true);
+    row->reset->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    row->reset->setToolTip(tr("Reset to default"));
+    row->reset->setFocusPolicy(Qt::TabFocus);
+    connect(row->reset, &QToolButton::clicked, this, [this, row] { resetColor(row); });
+
+    rowLayout->addWidget(row->swatch);
+    rowLayout->addWidget(row->reset);
+    rowLayout->addStretch(1);
+
+    form->addRow(label, field);
+    updateSwatch(row);
+    return row;
+}
+
+void PreferencesDialog::updateSwatch(ColorRow *row)
+{
+    const QColor shown = row->value.isValid() ? row->value : row->themeDefault;
+    // Solid fill via stylesheet on the tool button — avoid setStyleSheet on
+    // the whole dialog (that can force the CSS style engine). Scoped to the
+    // single swatch widget is fine and matches prior Preferences fixes.
+    row->swatch->setStyleSheet(
+        QStringLiteral("QToolButton { background-color: %1; border: 1px solid palette(mid); "
+                       "border-radius: 3px; }")
+            .arg(shown.name(QColor::HexArgb)));
+    row->reset->setEnabled(row->value.isValid());
+}
+
+void PreferencesDialog::pickColor(ColorRow *row)
+{
+    const QColor initial = row->value.isValid() ? row->value : row->themeDefault;
+    const QColor chosen = QColorDialog::getColor(initial, this, tr("Choose %1").arg(row->label),
+                                                 QColorDialog::ShowAlphaChannel);
+    if (!chosen.isValid()) {
+        return;
+    }
+    row->value = chosen;
+    updateSwatch(row);
+}
+
+void PreferencesDialog::resetColor(ColorRow *row)
+{
+    row->value = QColor(); // invalid => built-in theme default
+    updateSwatch(row);
 }
 
 QString PreferencesDialog::voice() const
@@ -126,4 +200,16 @@ QFont PreferencesDialog::font() const
     QFont f = m_fontCombo->currentFont();
     f.setPointSize(m_fontSizeSpin->value());
     return f;
+}
+
+DocumentView::Colors PreferencesDialog::colors() const
+{
+    DocumentView::Colors c;
+    c.text = m_textColor->value;
+    c.background = m_backgroundColor->value;
+    c.playing = m_playingColor->value;
+    c.preparing = m_preparingColor->value;
+    c.stopped = m_stoppedColor->value;
+    c.hover = m_hoverColor->value;
+    return c;
 }

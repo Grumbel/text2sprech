@@ -3,6 +3,7 @@
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QIcon>
+#include <QColor>
 #include <QSettings>
 
 #include "ui/MainWindow.h"
@@ -25,7 +26,18 @@ struct FileConfig {
     double speed = 1.0;
     QString fontFamily;
     int fontPointSize = -1; // <= 0 means "leave the widget's default size alone"
+    DocumentView::Colors colors; // invalid entries = built-in theme defaults
 };
+
+QColor readColorKey(QSettings &settings, const QString &key)
+{
+    const QString s = settings.value(key).toString();
+    if (s.isEmpty()) {
+        return QColor();
+    }
+    QColor c(s);
+    return c.isValid() ? c : QColor();
+}
 
 void readConfigGroup(QSettings &settings, FileConfig *config)
 {
@@ -50,6 +62,13 @@ void readConfigGroup(QSettings &settings, FileConfig *config)
                               << settings.value(QStringLiteral("fontPointSize"))
                               << "(expected 6-72); using the widget default";
     }
+
+    config->colors.text = readColorKey(settings, QStringLiteral("colorText"));
+    config->colors.background = readColorKey(settings, QStringLiteral("colorBackground"));
+    config->colors.playing = readColorKey(settings, QStringLiteral("colorPlaying"));
+    config->colors.preparing = readColorKey(settings, QStringLiteral("colorPreparing"));
+    config->colors.stopped = readColorKey(settings, QStringLiteral("colorStopped"));
+    config->colors.hover = readColorKey(settings, QStringLiteral("colorHover"));
 }
 
 bool groupHasAnyKeys(QSettings &settings)
@@ -57,7 +76,13 @@ bool groupHasAnyKeys(QSettings &settings)
     return settings.contains(QStringLiteral("voice"))
         || settings.contains(QStringLiteral("speed"))
         || settings.contains(QStringLiteral("fontFamily"))
-        || settings.contains(QStringLiteral("fontPointSize"));
+        || settings.contains(QStringLiteral("fontPointSize"))
+        || settings.contains(QStringLiteral("colorText"))
+        || settings.contains(QStringLiteral("colorBackground"))
+        || settings.contains(QStringLiteral("colorPlaying"))
+        || settings.contains(QStringLiteral("colorPreparing"))
+        || settings.contains(QStringLiteral("colorStopped"))
+        || settings.contains(QStringLiteral("colorHover"));
 }
 
 FileConfig loadFileConfig()
@@ -167,6 +192,7 @@ int main(int argc, char *argv[])
     options.pasteSelection = parser.isSet(pasteSelectionOption);
     options.fontFamily = fileConfig.fontFamily; // config-file only, no CLI flag
     options.fontPointSize = fileConfig.fontPointSize; // config-file only, no CLI flag
+    options.colors = fileConfig.colors; // config-file only, no CLI flag
 
     const QStringList positional = parser.positionalArguments();
     if (!positional.isEmpty()) {

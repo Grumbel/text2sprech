@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QClipboard>
+#include <QColor>
 #include <QFont>
 #include <QList>
 #include <QTextEdit>
@@ -36,6 +37,27 @@ public:
         Playing,    // actively speaking this sentence
     };
 
+    // User-overridable view colors. An invalid QColor means "use the
+    // built-in theme default for the current light/dark palette".
+    struct Colors {
+        QColor text;         // document text (palette WindowText / Text)
+        QColor background;   // document background (palette Base)
+        QColor playing;      // current-sentence highlight while speaking
+        QColor preparing;    // current-sentence highlight while synthesizing
+        QColor stopped;      // current-sentence highlight when idle/paused
+        QColor hover;        // sentence under the mouse cursor
+
+        bool operator==(const Colors &o) const
+        {
+            return text == o.text && background == o.background && playing == o.playing
+                && preparing == o.preparing && stopped == o.stopped && hover == o.hover;
+        }
+    };
+
+    // Built-in defaults for the given theme (invalid overrides in Colors
+    // resolve to these).
+    static Colors builtinDefaults(bool darkTheme);
+
     explicit DocumentView(QWidget *parent = nullptr);
 
     void loadPlainText(const QString &text);
@@ -58,6 +80,10 @@ public:
     void clearHighlight();
 
     HighlightState highlightState() const { return m_highlightState; }
+
+    // Applies user color overrides (invalid entries keep built-in defaults).
+    void setColors(const Colors &colors);
+    Colors colors() const { return m_colors; }
 
     // The font family/size used for plain text and any HTML content
     // without its own explicit styling. A real font+point-size, not an
@@ -102,6 +128,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private:
     void refreshExtraSelections();
@@ -112,6 +139,10 @@ private:
     // Applies background/foreground colors for m_highlightState onto
     // m_currentHighlight.format (does not touch the cursor range).
     void applyHighlightColors();
+    void applyDocumentPalette();
+    bool isDarkTheme() const;
+    // Near-black or near-white text depending on background luminance.
+    static QColor contrastingText(const QColor &background);
 
     // Sentence ranges for hover hit-testing (not painted as static tints).
     QVector<Sentence> m_sentences;
@@ -126,5 +157,6 @@ private:
     bool m_hasHoverHighlight = false;
     int m_hoverSentenceIndex = -1;
 
+    Colors m_colors; // invalid entries => theme builtins
     QFont m_baseFont;
 };

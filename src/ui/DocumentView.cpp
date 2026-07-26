@@ -11,6 +11,27 @@
 #include <QTextCursor>
 #include <algorithm>
 
+DocumentView::Colors DocumentView::builtinDefaults(bool darkTheme)
+{
+    Colors c;
+    if (darkTheme) {
+        c.text = QColor(232, 232, 236);
+        c.background = QColor(30, 30, 34);
+        c.playing = QColor(46, 110, 62);
+        c.preparing = QColor(40, 78, 120);
+        c.stopped = QColor(62, 66, 72);
+        c.hover = QColor(120, 140, 170, 70);
+    } else {
+        c.text = QColor(28, 30, 34);
+        c.background = QColor(255, 255, 255);
+        c.playing = QColor(198, 228, 188);
+        c.preparing = QColor(196, 220, 242);
+        c.stopped = QColor(226, 228, 232);
+        c.hover = QColor(160, 180, 210, 90);
+    }
+    return c;
+}
+
 DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
 {
     setReadOnly(true);
@@ -69,6 +90,66 @@ void DocumentView::decreaseTextSize()
     setBaseFont(f);
 }
 
+void DocumentView::setColors(const Colors &colors)
+{
+    m_colors = colors;
+    applyDocumentPalette();
+    if (m_hasCurrentHighlight) {
+        applyHighlightColors();
+    }
+    // Rebuild hover with the new color if one is showing.
+    if (m_hasHoverHighlight) {
+        const int idx = m_hoverSentenceIndex;
+        m_hoverSentenceIndex = -1; // force setHoverSentence to reapply
+        setHoverSentence(idx);
+    } else {
+        refreshExtraSelections();
+    }
+}
+
+void DocumentView::applyDocumentPalette()
+{
+    QPalette pal = palette();
+    const Colors defaults = builtinDefaults(isDarkTheme());
+    const QColor text = m_colors.text.isValid() ? m_colors.text : defaults.text;
+    const QColor bg = m_colors.background.isValid() ? m_colors.background : defaults.background;
+    // Only override when the user set a color; otherwise leave the platform
+    // palette alone so system theme changes still flow through.
+    if (m_colors.text.isValid()) {
+        pal.setColor(QPalette::Text, text);
+        pal.setColor(QPalette::WindowText, text);
+    }
+    if (m_colors.background.isValid()) {
+        pal.setColor(QPalette::Base, bg);
+        // Keep the viewport behind the text in sync when the document is short.
+        pal.setColor(QPalette::Window, bg);
+    }
+    if (m_colors.text.isValid() || m_colors.background.isValid()) {
+        setPalette(pal);
+        viewport()->setPalette(pal);
+    } else {
+        // Clear custom palette so we track the app/style theme again.
+        setPalette(QPalette());
+        viewport()->setPalette(QPalette());
+    }
+}
+
+bool DocumentView::isDarkTheme() const
+{
+    // Prefer the *effective* base color (may already include a user override).
+    return palette().color(QPalette::Base).lightness() < 128;
+}
+
+QColor DocumentView::contrastingText(const QColor &background)
+{
+    // WCAG-ish relative luminance threshold: light text on dark, dark on light.
+    const double r = background.redF();
+    const double g = background.greenF();
+    const double b = background.blueF();
+    const double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return luminance > 0.45 ? QColor(20, 24, 28) : QColor(240, 242, 245);
+}
+
 void DocumentView::setSentenceBoundaries(const QVector<Sentence> &sentences)
 {
     m_sentences = sentences;
@@ -89,33 +170,22 @@ void DocumentView::clearHighlight()
 
 void DocumentView::applyHighlightColors()
 {
-    // Theme-aware, pastels-on-light / mid-tones-on-dark chosen for body-text
-    // contrast rather than pure saturation. Goal: you can keep reading the
-    // highlighted sentence without the background fighting the glyphs.
-    //
-    // Playing  -- soft green: calm "this is being spoken" cue
-    // Preparing -- soft blue: distinct from playing, lower urgency
-    // Stopped  -- neutral gray: marks position without looking active
-    const bool dark = palette().color(QPalette::Base).lightness() < 128;
+    const Colors defaults = builtinDefaults(isDarkTheme());
     QColor bg;
-    QColor fg;
     switch (m_highlightState) {
     case HighlightState::Playing:
-        bg = dark ? QColor(46, 110, 62) : QColor(198, 228, 188);
-        fg = dark ? QColor(232, 245, 233) : QColor(20, 40, 24);
+        bg = m_colors.playing.isValid() ? m_colors.playing : defaults.playing;
         break;
     case HighlightState::Preparing:
-        bg = dark ? QColor(40, 78, 120) : QColor(196, 220, 242);
-        fg = dark ? QColor(227, 240, 252) : QColor(18, 36, 56);
+        bg = m_colors.preparing.isValid() ? m_colors.preparing : defaults.preparing;
         break;
     case HighlightState::Stopped:
     default:
-        bg = dark ? QColor(62, 66, 72) : QColor(226, 228, 232);
-        fg = dark ? QColor(230, 232, 236) : QColor(28, 30, 34);
+        bg = m_colors.stopped.isValid() ? m_colors.stopped : defaults.stopped;
         break;
     }
     m_currentHighlight.format.setBackground(bg);
-    m_currentHighlight.format.setForeground(fg);
+    m_currentHighlight.format.setForeground(contrastingText(bg));
 }
 
 void DocumentView::refreshExtraSelections()
@@ -177,8 +247,6 @@ void DocumentView::setHighlightState(HighlightState state)
     }
     m_highlightState = state;
     applyHighlightColors();
-    // ExtraSelection is a value type; re-assign so setExtraSelections sees
-    // the updated format.
     refreshExtraSelections();
 }
 
@@ -233,11 +301,8 @@ void DocumentView::setHoverSentence(int index)
     }
 
     QTextEdit::ExtraSelection selection;
-    // Subtle underline-like wash -- just enough to show the sentence
-    // boundary under the cursor without competing with the current
-    // highlight (which is always drawn on top).
-    const bool dark = palette().color(QPalette::Base).lightness() < 128;
-    const QColor hoverBg = dark ? QColor(120, 140, 170, 70) : QColor(160, 180, 210, 90);
+    const Colors defaults = builtinDefaults(isDarkTheme());
+    const QColor hoverBg = m_colors.hover.isValid() ? m_colors.hover : defaults.hover;
     selection.format.setBackground(hoverBg);
     QTextCursor cursor(document());
     cursor.setPosition(s.start);
@@ -247,6 +312,24 @@ void DocumentView::setHoverSentence(int index)
     m_hoverHighlight = selection;
     m_hasHoverHighlight = true;
     refreshExtraSelections();
+}
+
+void DocumentView::changeEvent(QEvent *event)
+{
+    QTextEdit::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange) {
+        // Theme switch: re-resolve any colors still using builtins.
+        applyDocumentPalette();
+        if (m_hasCurrentHighlight) {
+            applyHighlightColors();
+            refreshExtraSelections();
+        }
+        if (m_hasHoverHighlight) {
+            const int idx = m_hoverSentenceIndex;
+            m_hoverSentenceIndex = -1;
+            setHoverSentence(idx);
+        }
+    }
 }
 
 void DocumentView::mousePressEvent(QMouseEvent *event)

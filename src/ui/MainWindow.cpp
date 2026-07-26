@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QClipboard>
+#include <QColor>
 #include <QComboBox>
 #include <QDebug>
 #include <QDoubleSpinBox>
@@ -62,6 +63,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         initialFont.setPointSize(m_options.fontPointSize);
     }
     m_documentView->setBaseFont(initialFont);
+    m_documentView->setColors(m_options.colors);
 
     m_piperClient = new PiperClient(this);
     m_playback = new PlaybackController(m_piperClient, this);
@@ -585,36 +587,66 @@ void MainWindow::onPlaybackError(const QString &message)
 
 void MainWindow::openPreferences()
 {
-    // Seed the dialog from the *saved* startup defaults in the config file,
-    // not from the live toolbar/session values. Group is "startup" (see
-    // main.cpp loadFileConfig); fall back to legacy "general" once.
+    // Seed from saved startup defaults (config file), not the live session.
     QSettings settings;
 
-    auto readDefaults = [&settings](QString *voice, double *speed, QString *family, int *pointSize) {
-        *voice = settings.value(QStringLiteral("voice")).toString();
-        bool speedOk = false;
-        double s = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
-        *speed = (speedOk && s >= 0.5 && s <= 3.0) ? s : 1.0;
-        *family = settings.value(QStringLiteral("fontFamily")).toString();
-        bool sizeOk = false;
-        int ps = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
-        *pointSize = (sizeOk && ps >= 6 && ps <= 72) ? ps : 12;
+    auto readString = [&settings](const QString &key) {
+        return settings.value(key).toString();
+    };
+    auto readColor = [&settings](const QString &key) {
+        const QString s = settings.value(key).toString();
+        if (s.isEmpty()) {
+            return QColor();
+        }
+        QColor c(s);
+        return c.isValid() ? c : QColor();
+    };
+    auto groupHasPrefs = [&settings] {
         return settings.contains(QStringLiteral("voice")) || settings.contains(QStringLiteral("speed"))
             || settings.contains(QStringLiteral("fontFamily"))
-            || settings.contains(QStringLiteral("fontPointSize"));
+            || settings.contains(QStringLiteral("fontPointSize"))
+            || settings.contains(QStringLiteral("colorText"))
+            || settings.contains(QStringLiteral("colorBackground"))
+            || settings.contains(QStringLiteral("colorPlaying"))
+            || settings.contains(QStringLiteral("colorPreparing"))
+            || settings.contains(QStringLiteral("colorStopped"))
+            || settings.contains(QStringLiteral("colorHover"));
     };
 
     QString defaultVoice;
     double defaultSpeed = 1.0;
     QString defaultFamily;
     int defaultPointSize = 12;
+    DocumentView::Colors defaultColors;
+
+    auto readGroup = [&] {
+        defaultVoice = readString(QStringLiteral("voice"));
+        bool speedOk = false;
+        double s = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
+        defaultSpeed = (speedOk && s >= 0.5 && s <= 3.0) ? s : 1.0;
+        defaultFamily = readString(QStringLiteral("fontFamily"));
+        bool sizeOk = false;
+        int ps = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
+        defaultPointSize = (sizeOk && ps >= 6 && ps <= 72) ? ps : 12;
+        defaultColors.text = readColor(QStringLiteral("colorText"));
+        defaultColors.background = readColor(QStringLiteral("colorBackground"));
+        defaultColors.playing = readColor(QStringLiteral("colorPlaying"));
+        defaultColors.preparing = readColor(QStringLiteral("colorPreparing"));
+        defaultColors.stopped = readColor(QStringLiteral("colorStopped"));
+        defaultColors.hover = readColor(QStringLiteral("colorHover"));
+    };
 
     settings.beginGroup(QStringLiteral("startup"));
-    const bool haveStartup = readDefaults(&defaultVoice, &defaultSpeed, &defaultFamily, &defaultPointSize);
+    const bool haveStartup = groupHasPrefs();
+    if (haveStartup) {
+        readGroup();
+    }
     settings.endGroup();
     if (!haveStartup) {
         settings.beginGroup(QStringLiteral("general"));
-        readDefaults(&defaultVoice, &defaultSpeed, &defaultFamily, &defaultPointSize);
+        if (groupHasPrefs()) {
+            readGroup();
+        }
         settings.endGroup();
     }
 
@@ -624,36 +656,48 @@ void MainWindow::openPreferences()
     }
     defaultFont.setPointSize(defaultPointSize);
 
-    PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, this);
+    PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors, this);
 
-    // Apply: push dialog values into the live session via the same paths the
-    // toolbar uses. Does not write the config file; dialog stays open.
-    connect(&dialog, &PreferencesDialog::applyRequested, this, [this, &dialog] {
+    auto applyToSession = [this, &dialog] {
         if (!dialog.voice().isEmpty()) {
             m_voiceCombo->setCurrentText(dialog.voice());
         }
         m_speedSpin->setValue(dialog.speed());
         m_documentView->setBaseFont(dialog.font());
+        m_documentView->setColors(dialog.colors());
         statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
-    });
+    };
+    connect(&dialog, &PreferencesDialog::applyRequested, this, applyToSession);
 
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
-    // Save under [startup] only. Drop any legacy [general]/[%General] keys so
-    // the .ini does not keep accumulating duplicate sections (IniFormat's
-    // special handling of a group named General was the source of that).
     const QFont chosenFont = dialog.font();
+    const DocumentView::Colors chosenColors = dialog.colors();
+    auto storeColor = [&settings](const QString &key, const QColor &c) {
+        if (c.isValid()) {
+            settings.setValue(key, c.name(QColor::HexArgb));
+        } else {
+            settings.remove(key);
+        }
+    };
+
     settings.beginGroup(QStringLiteral("startup"));
     settings.setValue(QStringLiteral("voice"), dialog.voice());
     settings.setValue(QStringLiteral("speed"), dialog.speed());
     settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
     settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
+    storeColor(QStringLiteral("colorText"), chosenColors.text);
+    storeColor(QStringLiteral("colorBackground"), chosenColors.background);
+    storeColor(QStringLiteral("colorPlaying"), chosenColors.playing);
+    storeColor(QStringLiteral("colorPreparing"), chosenColors.preparing);
+    storeColor(QStringLiteral("colorStopped"), chosenColors.stopped);
+    storeColor(QStringLiteral("colorHover"), chosenColors.hover);
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("general"));
-    settings.remove(QString()); // all keys in this group
+    settings.remove(QString());
     settings.endGroup();
     settings.sync();
 

@@ -5,10 +5,13 @@
 #include <QString>
 #include <QStringList>
 
+#include "DocumentView.h"
+
 class QComboBox;
 class QDoubleSpinBox;
 class QFontComboBox;
 class QSpinBox;
+class QToolButton;
 
 // Edits startup defaults (config file) and optionally applies them to the
 // live session. Seeded from the saved defaults, not the current toolbar
@@ -17,33 +20,57 @@ class QSpinBox;
 //  - Save: write defaults to the config file and close (does not change
 //    the live session by itself).
 //  - Apply: push the dialog values into the current session (voice/speed/
-//    font) without writing the config file or closing.
+//    font/colors) without writing the config file or closing.
 //  - Cancel: close without saving or applying.
 //
 // This is the *only* place in the app that writes to the config file.
 class PreferencesDialog : public QDialog {
     Q_OBJECT
 public:
-    // availableVoices seeds the voice dropdown. defaultVoice/defaultSpeed/
-    // defaultFont are the values currently stored as startup defaults
-    // (from the config file), not the live session's toolbar settings.
+    // availableVoices seeds the voice dropdown. default* values are the
+    // startup defaults from the config file (not the live session).
+    // defaultColors: invalid QColor entries mean "built-in theme default".
     PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice, double defaultSpeed,
-                       const QFont &defaultFont, QWidget *parent = nullptr);
+                       const QFont &defaultFont, const DocumentView::Colors &defaultColors,
+                       QWidget *parent = nullptr);
 
     QString voice() const;
     double speed() const;
-    // Family + point size combined, since that's how the config file
-    // stores them (and DocumentView::setBaseFont() accepts).
     QFont font() const;
+    DocumentView::Colors colors() const;
 
 signals:
-    // Emitted when the user clicks Apply. Caller should push voice()/speed()/
-    // font() into the live session. The dialog stays open.
+    // Emitted when the user clicks Apply. Caller should push getters into
+    // the live session. The dialog stays open.
     void applyRequested();
 
 private:
+    // One color row: swatch button + reset-to-default tool button.
+    // Stored color may be invalid (= use built-in default); the swatch then
+    // shows the theme default for preview.
+    struct ColorRow {
+        QToolButton *swatch = nullptr;
+        QToolButton *reset = nullptr;
+        QColor value;          // may be invalid
+        QColor themeDefault;   // preview when value is invalid
+        QString label;
+    };
+
+    ColorRow *addColorRow(class QFormLayout *form, const QString &label, const QColor &value,
+                          const QColor &themeDefault);
+    void updateSwatch(ColorRow *row);
+    void pickColor(ColorRow *row);
+    void resetColor(ColorRow *row);
+
     QComboBox *m_voiceCombo;
     QDoubleSpinBox *m_speedSpin;
     QFontComboBox *m_fontCombo;
     QSpinBox *m_fontSizeSpin;
+
+    ColorRow *m_textColor = nullptr;
+    ColorRow *m_backgroundColor = nullptr;
+    ColorRow *m_playingColor = nullptr;
+    ColorRow *m_preparingColor = nullptr;
+    ColorRow *m_stoppedColor = nullptr;
+    ColorRow *m_hoverColor = nullptr;
 };

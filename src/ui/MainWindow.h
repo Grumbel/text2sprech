@@ -5,8 +5,8 @@
 #include <QVector>
 
 #include "document/Sentence.h"
+#include "DocumentView.h"
 
-class DocumentView;
 class PiperClient;
 class PiperServerManager;
 class PlaybackController;
@@ -30,6 +30,8 @@ public:
         // default size alone. See DocumentView::setBaseFont().
         QString fontFamily;
         int fontPointSize = -1;
+        // View colors from config (invalid QColor = built-in theme default).
+        DocumentView::Colors colors;
         // At most one of these "start with X" sources is used, in this
         // priority order: pasteSelection, pasteClipboard, initialFile.
         bool pasteClipboard = false;
