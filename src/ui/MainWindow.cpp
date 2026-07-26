@@ -95,6 +95,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_playback, &PlaybackController::errorOccurred, this, &MainWindow::onPlaybackError);
     connect(m_playback, &PlaybackController::playbackFinished, this, [this] {
         m_playPauseAction->setText(tr("Play"));
+        m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setActivity(tr("Finished"));
         statusBar()->showMessage(tr("Finished"), 3000);
     });
@@ -405,23 +406,36 @@ void MainWindow::togglePlayPause()
     if (m_playback->isPlaying()) {
         m_playback->pause();
         m_playPauseAction->setText(tr("Play"));
+        // Keep the current sentence visible, but switch to the muted
+        // "stopped/selected" color so it no longer looks actively speaking.
+        m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setActivity(tr("Paused"));
     } else {
         m_playback->play();
         m_playPauseAction->setText(tr("Pause"));
+        // play() will emit preparingAudio / sentenceStarted, which recolor
+        // the highlight; no need to force a state here.
     }
 }
 
 void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
 {
-    m_documentView->highlightRange(start, end);
+    m_documentView->highlightRange(start, end, DocumentView::HighlightState::Playing);
     m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
     setActivity(tr("Playing"));
     refreshInfoLabel();
 }
 
-void MainWindow::onPreparingAudio(int /*sentenceId*/)
+void MainWindow::onPreparingAudio(int sentenceId)
 {
+    if (sentenceId >= 0 && sentenceId < m_sentences.size()) {
+        const Sentence &s = m_sentences[sentenceId];
+        m_documentView->highlightRange(s.start, s.end, DocumentView::HighlightState::Preparing);
+        m_currentSentenceIndex = sentenceId;
+        refreshInfoLabel();
+    } else {
+        m_documentView->setHighlightState(DocumentView::HighlightState::Preparing);
+    }
     setActivity(tr("Preparing audio…"));
 }
 
@@ -444,7 +458,12 @@ void MainWindow::jumpToSentence(int index)
     // paused/stopped, seekToSentence() below won't emit sentenceStarted
     // (that only fires once audio actually starts), so without this a
     // click or arrow-key press would appear to do nothing until Play.
-    m_documentView->highlightRange(sentence.start, sentence.end);
+    // Color: Preparing if playback is already running (synth will follow),
+    // otherwise the muted Stopped/selected state.
+    const auto state = m_playback->isPlaying()
+        ? DocumentView::HighlightState::Preparing
+        : DocumentView::HighlightState::Stopped;
+    m_documentView->highlightRange(sentence.start, sentence.end, state);
     m_currentSentenceIndex = index;
     refreshInfoLabel();
     m_playback->seekToSentence(index);

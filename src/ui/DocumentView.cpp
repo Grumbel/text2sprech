@@ -81,7 +81,35 @@ void DocumentView::setSentenceBoundaries(const QVector<Sentence> &sentences)
 void DocumentView::clearHighlight()
 {
     m_hasCurrentHighlight = false;
+    m_highlightStart = -1;
+    m_highlightEnd = -1;
+    m_highlightState = HighlightState::Stopped;
     refreshExtraSelections();
+}
+
+void DocumentView::applyHighlightColors()
+{
+    // Fixed colors rather than palette().highlight() so we stay readable
+    // over any theme and avoid Qt's native blue/white selection look.
+    // Playing: saturated amber -- "this is speaking now"
+    // Preparing: soft sky blue -- "buffering / synthesizing"
+    // Stopped: muted slate -- selected or paused, not active
+    QColor bg;
+    QColor fg(20, 20, 20);
+    switch (m_highlightState) {
+    case HighlightState::Playing:
+        bg = QColor(255, 152, 0);
+        break;
+    case HighlightState::Preparing:
+        bg = QColor(100, 170, 255);
+        break;
+    case HighlightState::Stopped:
+    default:
+        bg = QColor(170, 175, 185);
+        break;
+    }
+    m_currentHighlight.format.setBackground(bg);
+    m_currentHighlight.format.setForeground(fg);
 }
 
 void DocumentView::refreshExtraSelections()
@@ -98,25 +126,23 @@ void DocumentView::refreshExtraSelections()
     setExtraSelections(combined);
 }
 
-void DocumentView::highlightRange(int start, int end)
+void DocumentView::highlightRange(int start, int end, HighlightState state)
 {
     if (start < 0 || end > document()->characterCount() || start >= end) {
         return;
     }
 
+    m_highlightState = state;
+    m_highlightStart = start;
+    m_highlightEnd = end;
+
     QTextEdit::ExtraSelection selection;
-    // Fixed, high-contrast colors rather than palette().highlight()/
-    // highlightedText() -- the default blue-background/white-text
-    // combination was hard to read. A saturated amber with near-black
-    // text stays clearly readable regardless of light/dark theme.
-    selection.format.setBackground(QColor(255, 152, 0));
-    selection.format.setForeground(QColor(20, 20, 20));
     QTextCursor cursor(document());
     cursor.setPosition(start);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
     selection.cursor = cursor;
-
     m_currentHighlight = selection;
+    applyHighlightColors();
     m_hasCurrentHighlight = true;
     refreshExtraSelections();
 
@@ -133,6 +159,21 @@ void DocumentView::highlightRange(int start, int end)
     // cursor, not just the widget's actual one, so centering doesn't need
     // to touch real cursor/selection state at all.
     centerCursor(cursor);
+}
+
+void DocumentView::setHighlightState(HighlightState state)
+{
+    if (!m_hasCurrentHighlight) {
+        return;
+    }
+    if (m_highlightState == state) {
+        return;
+    }
+    m_highlightState = state;
+    applyHighlightColors();
+    // ExtraSelection is a value type; re-assign so setExtraSelections sees
+    // the updated format.
+    refreshExtraSelections();
 }
 
 void DocumentView::centerCursor(const QTextCursor &cursor)
@@ -186,8 +227,8 @@ void DocumentView::setHoverSentence(int index)
     }
 
     QTextEdit::ExtraSelection selection;
-    // Softer than the active amber so hover is a cue, not competing with
-    // the currently-playing sentence. Tuned for light and dark themes.
+    // Softer than the active highlight so hover is a cue, not competing
+    // with the current sentence. Tuned for light and dark themes.
     bool isDarkTheme = palette().color(QPalette::Base).lightness() < 128;
     QColor hoverBg = isDarkTheme ? QColor(180, 140, 40, 90) : QColor(255, 230, 150, 160);
     selection.format.setBackground(hoverBg);

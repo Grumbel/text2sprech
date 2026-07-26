@@ -19,7 +19,8 @@
 // SentenceSplitter produces when run on document()->toPlainText().
 //
 // Two optional ExtraSelections are combined (see refreshExtraSelections()):
-//  1. The single "currently playing" / click-selected highlight (amber).
+//  1. The single current-sentence highlight, colored by HighlightState
+//     (playing / preparing / stopped-or-selected).
 //  2. A lighter hover highlight on the sentence under the mouse cursor,
 //     drawn underneath the current highlight when both overlap so the
 //     active sentence always wins visually.
@@ -27,6 +28,14 @@
 class DocumentView : public QTextEdit {
     Q_OBJECT
 public:
+    // Visual mode for the current-sentence highlight. Callers set this via
+    // highlightRange() or setHighlightState() as playback progresses.
+    enum class HighlightState {
+        Stopped,    // selected / paused / idle -- muted
+        Preparing,  // audio is being synthesized for this sentence
+        Playing,    // actively speaking this sentence
+    };
+
     explicit DocumentView(QWidget *parent = nullptr);
 
     void loadPlainText(const QString &text);
@@ -40,8 +49,15 @@ public:
     void setSentenceBoundaries(const QVector<Sentence> &sentences);
 
     // start/end are plain-text offsets (end exclusive), matching Sentence.
-    void highlightRange(int start, int end);
+    // state selects the highlight color (playing / preparing / stopped).
+    void highlightRange(int start, int end, HighlightState state = HighlightState::Stopped);
+    // Recolor the existing current highlight without moving it (e.g. pause
+    // -> Stopped, or preparing -> Playing once audio arrives). No-op if
+    // there is no current highlight.
+    void setHighlightState(HighlightState state);
     void clearHighlight();
+
+    HighlightState highlightState() const { return m_highlightState; }
 
     // The font family/size used for plain text and any HTML content
     // without its own explicit styling. A real font+point-size, not an
@@ -93,12 +109,18 @@ private:
     // Maps a plain-text offset to the sentence that contains it, or -1.
     int sentenceIndexForOffset(int offset) const;
     void setHoverSentence(int index);
+    // Applies background/foreground colors for m_highlightState onto
+    // m_currentHighlight.format (does not touch the cursor range).
+    void applyHighlightColors();
 
     // Sentence ranges for hover hit-testing (not painted as static tints).
     QVector<Sentence> m_sentences;
 
     QTextEdit::ExtraSelection m_currentHighlight;
     bool m_hasCurrentHighlight = false;
+    HighlightState m_highlightState = HighlightState::Stopped;
+    int m_highlightStart = -1;
+    int m_highlightEnd = -1;
 
     QTextEdit::ExtraSelection m_hoverHighlight;
     bool m_hasHoverHighlight = false;
