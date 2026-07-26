@@ -13,6 +13,8 @@
 #include "PiperClient.h"
 #include "document/Sentence.h"
 
+class QAudioOutput;
+
 // Drives sentence-by-sentence playback:
 //  - keeps `lookahead` sentences' worth of audio requested ahead of playback
 //    so there's minimal gap between one sentence finishing and the next
@@ -55,6 +57,13 @@ public:
     void setVoice(const QString &voice);
     void setLookahead(int count) { m_lookahead = count; }
 
+    // Linear playback gain on QAudioOutput (0.0 silent … 1.0 full). Independent
+    // of synthesis speed/voice; applies immediately to the current sentence.
+    void setVolume(float volume);
+    float volume() const;
+    void setMuted(bool muted);
+    bool isMuted() const;
+
     bool isPlaying() const;
 
 signals:
@@ -78,6 +87,7 @@ private:
 
     PiperClient *m_client; // not owned
     QMediaPlayer m_player;
+    QAudioOutput *m_audioOutput = nullptr; // owned by m_player as child
     std::unique_ptr<QBuffer> m_currentAudioBuffer;
 
     QVector<Sentence> m_sentences;

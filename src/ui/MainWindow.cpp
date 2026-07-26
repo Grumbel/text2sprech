@@ -585,7 +585,60 @@ void MainWindow::setUpUi()
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex + 1);
     });
 
-    // Layout: [elapsed] … [transport] … [remaining · sentence]
+    // Volume: mute toggle + horizontal slider (0–100%), same row as transport.
+    m_muteButton = new QToolButton(controlsRow);
+    m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+    m_muteButton->setIconSize(QSize(22, 22));
+    m_muteButton->setAutoRaise(true);
+    m_muteButton->setFocusPolicy(Qt::NoFocus);
+    m_muteButton->setCheckable(true);
+    m_muteButton->setToolTip(tr("Mute"));
+    connect(m_muteButton, &QToolButton::toggled, this, [this](bool muted) {
+        m_playback->setMuted(muted);
+        if (muted) {
+            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolumeMuted));
+            m_muteButton->setToolTip(tr("Unmute"));
+        } else {
+            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+            m_muteButton->setToolTip(tr("Mute"));
+        }
+    });
+
+    m_volumeSlider = new QSlider(Qt::Horizontal, controlsRow);
+    m_volumeSlider->setRange(0, 100);
+    m_volumeSlider->setValue(100);
+    m_volumeSlider->setMaximumWidth(120);
+    m_volumeSlider->setMinimumWidth(72);
+    m_volumeSlider->setFixedHeight(22);
+    m_volumeSlider->setFocusPolicy(Qt::NoFocus);
+    m_volumeSlider->setToolTip(tr("Volume: 100%"));
+    m_volumeSlider->setAccessibleName(tr("Volume"));
+    connect(m_volumeSlider, &QSlider::valueChanged, this, [this](int value) {
+        m_playback->setVolume(value / 100.0f);
+        m_volumeSlider->setToolTip(tr("Volume: %1%").arg(value));
+        // Dragging to 0 acts like mute for the speaker icon; dragging up
+        // clears mute so the new level is audible immediately.
+        if (value == 0) {
+            if (m_muteButton && !m_muteButton->isChecked()) {
+                m_muteButton->blockSignals(true);
+                m_muteButton->setChecked(true);
+                m_muteButton->blockSignals(false);
+                m_playback->setMuted(true);
+                m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolumeMuted));
+                m_muteButton->setToolTip(tr("Unmute"));
+            }
+        } else if (m_muteButton && m_muteButton->isChecked()) {
+            m_muteButton->blockSignals(true);
+            m_muteButton->setChecked(false);
+            m_muteButton->blockSignals(false);
+            m_playback->setMuted(false);
+            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+            m_muteButton->setToolTip(tr("Mute"));
+        }
+    });
+    m_playback->setVolume(1.0f);
+
+    // Layout: [elapsed] … [transport] … [remaining · sentence · volume]
     controlsLayout->addWidget(m_elapsedLabel);
     controlsLayout->addStretch(1);
     controlsLayout->addWidget(prevBtn);
@@ -595,6 +648,9 @@ void MainWindow::setUpUi()
     controlsLayout->addStretch(1);
     controlsLayout->addWidget(m_remainingLabel);
     controlsLayout->addWidget(m_sentenceLabel);
+    controlsLayout->addSpacing(8);
+    controlsLayout->addWidget(m_muteButton);
+    controlsLayout->addWidget(m_volumeSlider);
 
     playerColumn->addWidget(controlsRow);
     centralLayout->addWidget(playerBar);

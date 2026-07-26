@@ -24,6 +24,7 @@ class QLabel;
 class QLineEdit;
 class QMenu;
 class QSlider;
+class QToolButton;
 class QWidget;
 
 class MainWindow : public QMainWindow {
@@ -166,6 +167,8 @@ private:
     QLabel *m_elapsedLabel;      // estimated listening time so far
     QLabel *m_remainingLabel;    // estimated listening time left (−m:ss)
     QLabel *m_sentenceLabel;     // "sentence N / M"
+    QSlider *m_volumeSlider = nullptr; // 0–100 → QAudioOutput linear gain
+    QToolButton *m_muteButton = nullptr;
     bool m_realAudioAvailable = false;
 
     QVector<Sentence> m_sentences;

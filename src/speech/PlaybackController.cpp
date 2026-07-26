@@ -4,16 +4,43 @@
 #include "PlaybackController.h"
 
 #include <QAudioOutput>
+#include <QtGlobal>
 
 PlaybackController::PlaybackController(PiperClient *client, QObject *parent)
     : QObject(parent), m_client(client)
 {
-    auto *audioOutput = new QAudioOutput(&m_player);
-    m_player.setAudioOutput(audioOutput);
+    m_audioOutput = new QAudioOutput(&m_player);
+    m_audioOutput->setVolume(1.0f);
+    m_player.setAudioOutput(m_audioOutput);
 
     connect(m_client, &PiperClient::audioReady, this, &PlaybackController::onAudioReady);
     connect(m_client, &PiperClient::synthesisError, this, &PlaybackController::onSynthesisError);
     connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, &PlaybackController::onMediaStatusChanged);
+}
+
+void PlaybackController::setVolume(float volume)
+{
+    if (!m_audioOutput) {
+        return;
+    }
+    m_audioOutput->setVolume(qBound(0.0f, volume, 1.0f));
+}
+
+float PlaybackController::volume() const
+{
+    return m_audioOutput ? m_audioOutput->volume() : 1.0f;
+}
+
+void PlaybackController::setMuted(bool muted)
+{
+    if (m_audioOutput) {
+        m_audioOutput->setMuted(muted);
+    }
+}
+
+bool PlaybackController::isMuted() const
+{
+    return m_audioOutput && m_audioOutput->isMuted();
 }
 
 void PlaybackController::loadSentences(const QVector<Sentence> &sentences)
