@@ -274,7 +274,9 @@ void MainWindow::setUpUi()
     auto *stopBtn = makeTransportButton(QStyle::SP_MediaStop, tr("Stop"));
     connect(stopBtn, &QToolButton::clicked, this, [this] {
         m_playback->stop();
-        m_documentView->clearHighlight();
+        // Keep the current sentence visible in the muted Stopped color
+        // (same as pause / finished) rather than clearing the highlight.
+        m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setPlayingUi(false);
         setActivity(tr("Stopped"));
     });
