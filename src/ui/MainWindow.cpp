@@ -8,6 +8,8 @@
 #include <QComboBox>
 #include <QDebug>
 #include <QDoubleSpinBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -29,6 +31,7 @@
 #include <QToolButton>
 #include <QStyle>
 #include <QSlider>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <algorithm>
@@ -74,6 +77,18 @@ int wordsToSeconds(int words, double speed)
 {
     const double wpm = kWordsPerMinuteBase * qMax(0.1, speed);
     return static_cast<int>((words / wpm) * 60.0 + 0.5);
+}
+
+constexpr int kMaxRecentFiles = 12;
+
+QString canonicalizePath(const QString &path)
+{
+    const QFileInfo info(path);
+    const QString canonical = info.canonicalFilePath();
+    if (!canonical.isEmpty()) {
+        return canonical;
+    }
+    return info.absoluteFilePath();
 }
 } // namespace
 
@@ -179,6 +194,7 @@ void MainWindow::connectToPiperServer(const QString &socketPath)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    saveCurrentPosition();
     m_playback->stop();
     // Drop the Unix socket before SIGTERM'ing the server. Otherwise the
     // server's asyncio shutdown waits for this still-open client connection
@@ -193,8 +209,33 @@ void MainWindow::closeEvent(QCloseEvent *event)
     QMainWindow::closeEvent(event);
 }
 
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData() && event->mimeData()->hasUrls()) {
+        for (const QUrl &url : event->mimeData()->urls()) {
+            if (url.isLocalFile()) {
+                event->acceptProposedAction();
+                return;
+            }
+        }
+    }
+    event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    if (event->mimeData() && event->mimeData()->hasUrls()) {
+        openDroppedUrls(event->mimeData()->urls());
+        event->acceptProposedAction();
+        return;
+    }
+    event->ignore();
+}
+
 void MainWindow::setUpUi()
 {
+    setAcceptDrops(true);
+
     // Central column: document on top, media-player transport bar below.
     auto *central = new QWidget(this);
     auto *centralLayout = new QVBoxLayout(central);
@@ -214,15 +255,26 @@ void MainWindow::setUpUi()
         return icon.isNull() ? fallback : icon;
     };
 
-    // Document: open + paste (clipboard is the common case; selection is a
-    // submenu entry so the bar stays short on platforms that support both).
-    auto *openAction = toolbar->addAction(
+    // Document: Open (with Recent submenu) + paste.
+    m_openAction = new QAction(
         themeIcon(QStringLiteral("document-open"), style()->standardIcon(QStyle::SP_DialogOpenButton)),
-        tr("Open"));
-    openAction->setToolTip(tr("Open a text or HTML file"));
-    openAction->setShortcut(QKeySequence::Open);
-    connect(openAction, &QAction::triggered, this, &MainWindow::openFile);
-    addAction(openAction); // so the shortcut works when the toolbar action isn't focused
+        tr("Open"), this);
+    m_openAction->setToolTip(tr("Open a text or HTML file (or drop one onto the window)"));
+    m_openAction->setShortcut(QKeySequence::Open);
+    connect(m_openAction, &QAction::triggered, this, &MainWindow::openFile);
+    addAction(m_openAction);
+
+    m_recentMenu = new QMenu(tr("Recent"), this);
+    rebuildRecentMenu();
+    auto *openButton = new QToolButton(toolbar);
+    openButton->setDefaultAction(m_openAction);
+    openButton->setMenu(m_recentMenu);
+    openButton->setPopupMode(QToolButton::MenuButtonPopup);
+    openButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    openButton->setIconSize(toolbar->iconSize());
+    toolbar->addWidget(openButton);
+
+    connect(m_documentView, &DocumentView::filesDropped, this, &MainWindow::openDroppedUrls);
 
     auto *pasteClipboardAction = new QAction(
         themeIcon(QStringLiteral("edit-paste"), style()->standardIcon(QStyle::SP_DialogResetButton)),
@@ -515,6 +567,7 @@ void MainWindow::openFilePath(const QString &path)
 {
     QString contents;
     bool isHtml = false;
+    QString resolvedPath;
 
     if (path == QLatin1String("-")) {
         // Pseudo-path: read the document from stdin (e.g. `cat book.txt | text2sprech -`).
@@ -526,7 +579,14 @@ void MainWindow::openFilePath(const QString &path)
         isHtml = head.startsWith(QLatin1String("<!doctype html"))
             || head.startsWith(QLatin1String("<html"));
     } else {
-        QFile file(path);
+        QFileInfo info(path);
+        if (!info.exists() || !info.isFile()) {
+            QMessageBox::warning(this, tr("Open failed"),
+                                 tr("File not found:\n%1").arg(path));
+            return;
+        }
+        resolvedPath = canonicalizePath(path);
+        QFile file(resolvedPath.isEmpty() ? path : resolvedPath);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QMessageBox::warning(this, tr("Open failed"), file.errorString());
             return;
@@ -534,11 +594,19 @@ void MainWindow::openFilePath(const QString &path)
         QTextStream stream(&file);
         stream.setEncoding(QStringConverter::Utf8);
         contents = stream.readAll();
-        isHtml = QFileInfo(path).suffix().compare(QLatin1String("html"), Qt::CaseInsensitive) == 0
-            || QFileInfo(path).suffix().compare(QLatin1String("htm"), Qt::CaseInsensitive) == 0;
+        isHtml = info.suffix().compare(QLatin1String("html"), Qt::CaseInsensitive) == 0
+            || info.suffix().compare(QLatin1String("htm"), Qt::CaseInsensitive) == 0;
     }
 
+    // Persist the previous file's place before switching documents.
+    saveCurrentPosition();
+    setCurrentDocumentPath(resolvedPath);
     loadDocumentText(contents, isHtml);
+
+    if (!resolvedPath.isEmpty()) {
+        addToRecentFiles(resolvedPath);
+        restoreSavedPosition();
+    }
 }
 
 void MainWindow::pasteFromSource(QClipboard::Mode mode)
@@ -554,8 +622,12 @@ void MainWindow::pasteFromSource(QClipboard::Mode mode)
     }
     const QMimeData *mime = clipboard->mimeData(mode);
     if (mime->hasHtml()) {
+        saveCurrentPosition();
+        setCurrentDocumentPath(QString());
         loadDocumentText(mime->html(), true);
     } else if (mime->hasText()) {
+        saveCurrentPosition();
+        setCurrentDocumentPath(QString());
         loadDocumentText(mime->text(), false);
     } else {
         statusBar()->showMessage(tr("Nothing to paste from that source"), 3000);
@@ -581,9 +653,11 @@ void MainWindow::showWelcomeMessage()
         "</div>")
         .arg(tr("text2sprech"),
              tr("A local text-to-speech reader with live sentence highlighting."),
-             tr("<b>Open</b> a text or HTML file, or <b>Paste</b> from the clipboard "
-                "(Ctrl+V). On Linux you can also paste the primary selection "
-                "(middle-click or the Paste menu)."),
+             tr("<b>Open</b> a text or HTML file (or drag one onto the window), "
+                "pick a <b>Recent</b> file from the Open menu, or <b>Paste</b> "
+                "from the clipboard (Ctrl+V). On Linux you can also paste the "
+                "primary selection (middle-click or the Paste menu). Reading "
+                "position is remembered per file."),
              tr("Press <b>Play</b> (Space) to hear the document. The current sentence "
                 "is highlighted as it is spoken."),
              tr("Click any sentence, or use the <b>Left</b>/<b>Right</b> arrow keys, "
@@ -594,6 +668,8 @@ void MainWindow::showWelcomeMessage()
              tr("Playback controls sit at the bottom: previous, play/pause, stop, next."),
              tr("Speech stays on your machine via Piper — nothing is sent to the cloud."));
 
+    saveCurrentPosition();
+    setCurrentDocumentPath(QString());
     loadDocumentText(html, /*isHtml=*/true);
     m_showingWelcome = true;
     refreshProgress();
@@ -634,6 +710,13 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
         m_documentView->loadPlainText(content);
     }
     reindexSentences();
+
+    if (!m_currentDocumentPath.isEmpty()) {
+        setWindowTitle(tr("%1 — text2sprech").arg(QFileInfo(m_currentDocumentPath).fileName()));
+    } else {
+        setWindowTitle(tr("text2sprech"));
+    }
+
     if (m_options.autoplay && !m_sentences.isEmpty()) {
         m_playback->play();
         setPlayingUi(true);
@@ -710,6 +793,7 @@ void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
     m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
     setActivity(tr("Playing"));
     refreshProgress();
+    saveCurrentPosition();
 }
 
 void MainWindow::onPreparingAudio(int sentenceId)
@@ -753,6 +837,9 @@ void MainWindow::jumpToSentence(int index)
     m_currentSentenceIndex = index;
     refreshProgress();
     m_playback->seekToSentence(index);
+    if (!m_restoringPosition) {
+        saveCurrentPosition();
+    }
 }
 
 void MainWindow::onVoiceListReady(const QStringList &voices, const QString &current)
@@ -963,4 +1050,156 @@ void MainWindow::onProgressSliderCommitted(int wordOffset)
         return;
     }
     jumpToSentence(sentenceIndexForWordOffset(wordOffset));
+}
+
+void MainWindow::setCurrentDocumentPath(const QString &path)
+{
+    m_currentDocumentPath = path;
+}
+
+void MainWindow::saveCurrentPosition()
+{
+    if (m_currentDocumentPath.isEmpty() || m_showingWelcome) {
+        return;
+    }
+    if (m_currentSentenceIndex < 0) {
+        return;
+    }
+    storeSavedSentenceIndex(m_currentDocumentPath, m_currentSentenceIndex);
+}
+
+void MainWindow::restoreSavedPosition()
+{
+    if (m_currentDocumentPath.isEmpty() || m_sentences.isEmpty()) {
+        return;
+    }
+    const int saved = loadSavedSentenceIndex(m_currentDocumentPath);
+    if (saved < 0) {
+        return;
+    }
+    m_restoringPosition = true;
+    jumpToSentence(saved);
+    m_restoringPosition = false;
+    statusBar()->showMessage(
+        tr("Resumed at sentence %1 of %2").arg(m_currentSentenceIndex + 1).arg(m_sentences.size()),
+        3000);
+}
+
+void MainWindow::addToRecentFiles(const QString &path)
+{
+    if (path.isEmpty()) {
+        return;
+    }
+    QStringList recent = loadRecentFiles();
+    recent.removeAll(path);
+    recent.prepend(path);
+    while (recent.size() > kMaxRecentFiles) {
+        recent.removeLast();
+    }
+    storeRecentFiles(recent);
+    rebuildRecentMenu();
+}
+
+void MainWindow::rebuildRecentMenu()
+{
+    if (!m_recentMenu) {
+        return;
+    }
+    m_recentMenu->clear();
+
+    const QStringList recent = loadRecentFiles();
+    if (recent.isEmpty()) {
+        auto *empty = m_recentMenu->addAction(tr("No recent files"));
+        empty->setEnabled(false);
+        return;
+    }
+
+    for (const QString &path : recent) {
+        const QString label = QFileInfo(path).fileName();
+        auto *action = m_recentMenu->addAction(label);
+        action->setToolTip(path);
+        // Capture path by value for the lambda.
+        connect(action, &QAction::triggered, this, [this, path] {
+            openFilePath(path);
+        });
+    }
+    m_recentMenu->addSeparator();
+    auto *clearAction = m_recentMenu->addAction(tr("Clear recent files"));
+    connect(clearAction, &QAction::triggered, this, [this] {
+        storeRecentFiles({});
+        rebuildRecentMenu();
+    });
+}
+
+QStringList MainWindow::loadRecentFiles()
+{
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("recent"));
+    QStringList files = settings.value(QStringLiteral("files")).toStringList();
+    settings.endGroup();
+    // Drop entries that no longer exist on disk.
+    files.erase(std::remove_if(files.begin(), files.end(),
+                                [](const QString &p) { return !QFileInfo::exists(p); }),
+                files.end());
+    return files;
+}
+
+void MainWindow::storeRecentFiles(const QStringList &paths)
+{
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("recent"));
+    settings.setValue(QStringLiteral("files"), paths);
+    settings.endGroup();
+}
+
+QString MainWindow::positionSettingsKey(const QString &path)
+{
+    // Paths contain '/' which QSettings treats as group separators -- encode.
+    return QString::fromLatin1(
+        path.toUtf8().toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+}
+
+int MainWindow::loadSavedSentenceIndex(const QString &path)
+{
+    if (path.isEmpty()) {
+        return -1;
+    }
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("positions"));
+    const QVariant v = settings.value(positionSettingsKey(path));
+    settings.endGroup();
+    if (!v.isValid()) {
+        return -1;
+    }
+    bool ok = false;
+    const int index = v.toInt(&ok);
+    return ok && index >= 0 ? index : -1;
+}
+
+void MainWindow::storeSavedSentenceIndex(const QString &path, int sentenceIndex)
+{
+    if (path.isEmpty() || sentenceIndex < 0) {
+        return;
+    }
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("positions"));
+    settings.setValue(positionSettingsKey(path), sentenceIndex);
+    settings.endGroup();
+}
+
+void MainWindow::openDroppedUrls(const QList<QUrl> &urls)
+{
+    for (const QUrl &url : urls) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString path = url.toLocalFile();
+        const QFileInfo info(path);
+        if (!info.isFile()) {
+            continue;
+        }
+        openFilePath(path);
+        return; // one document at a time
+    }
+    statusBar()->showMessage(tr("Drop a text or HTML file to open it"), 3000);
 }

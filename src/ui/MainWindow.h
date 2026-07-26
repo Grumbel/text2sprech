@@ -14,7 +14,10 @@ class QComboBox;
 class QDoubleSpinBox;
 class QAction;
 class QCloseEvent;
+class QDragEnterEvent;
+class QDropEvent;
 class QLabel;
+class QMenu;
 class QSlider;
 
 class MainWindow : public QMainWindow {
@@ -51,6 +54,8 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private slots:
     void openFile();
@@ -62,9 +67,8 @@ private slots:
     void onSpeedChanged(double speed);
     void onPlaybackError(const QString &message);
     // Opens PreferencesDialog seeded from the config-file defaults.
-    // Save writes defaults to the config file only; Apply pushes the dialog
-    // values into the live session without persisting. This is the only
-    // place in the app that writes the config file.
+    // Save writes those defaults; recent-files and per-document positions
+    // are written separately under their own groups.
     void openPreferences();
 
 private:
@@ -102,6 +106,24 @@ private:
     // User interacted with the progress slider (click or release after drag).
     void onProgressSliderCommitted(int wordOffset);
 
+    // --- Recent files + per-document reading position -------------------------
+    // Canonical path of the file currently loaded, or empty for paste /
+    // welcome / stdin. Positions and the recent list only apply when set.
+    void setCurrentDocumentPath(const QString &path);
+    void saveCurrentPosition();
+    // After reindex: jump to the saved sentence if one exists for this path.
+    void restoreSavedPosition();
+    void addToRecentFiles(const QString &path);
+    void rebuildRecentMenu();
+    static QStringList loadRecentFiles();
+    static void storeRecentFiles(const QStringList &paths);
+    // QSettings-safe key for a filesystem path (paths contain '/').
+    static QString positionSettingsKey(const QString &path);
+    static int loadSavedSentenceIndex(const QString &path);
+    static void storeSavedSentenceIndex(const QString &path, int sentenceIndex);
+    // Accept local file URLs from a drop (window or document view).
+    void openDroppedUrls(const QList<QUrl> &urls);
+
     Options m_options;
 
     DocumentView *m_documentView;
@@ -114,6 +136,8 @@ private:
     QComboBox *m_voiceCombo;
     QDoubleSpinBox *m_speedSpin;
     QAction *m_playPauseAction;
+    QAction *m_openAction = nullptr;
+    QMenu *m_recentMenu = nullptr;
     QLabel *m_activityLabel;     // left/normal status bar area: current activity
     QSlider *m_progressSlider;   // word-based position through the document
     QLabel *m_elapsedLabel;      // estimated listening time so far
@@ -123,6 +147,9 @@ private:
     QVector<Sentence> m_sentences;
     bool m_startupContentLoaded = false;
     bool m_showingWelcome = false;
+    // Absolute canonical path when the document came from a real file;
+    // empty for paste, welcome, or stdin ("-").
+    QString m_currentDocumentPath;
 
     // Last voice list reported by the server ("ready" message) -- used to
     // populate PreferencesDialog's voice dropdown.
@@ -134,6 +161,8 @@ private:
     QVector<int> m_cumulativeWordsBeforeSentence; // parallel to m_sentences
     int m_currentSentenceIndex = -1; // -1 = no position yet (nothing played/clicked)
     bool m_progressSliderPressed = false; // suppress programmatic feedback while dragging
+    // Skip persist while programmatically restoring a saved index on open.
+    bool m_restoringPosition = false;
 
     // Startup connection retry: the spawned server needs a moment to import
     // Python/load models before its socket exists, so the first few connect

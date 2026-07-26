@@ -1,14 +1,19 @@
 #include "DocumentView.h"
 
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QEvent>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QRect>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QUrl>
 #include <algorithm>
 
 DocumentView::Colors DocumentView::builtinDefaults(bool darkTheme)
@@ -39,6 +44,9 @@ DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
     // Needed so mouseMoveEvent fires without a button held -- required for
     // per-sentence hover highlighting.
     setMouseTracking(true);
+    // Accept file drops (forwarded to MainWindow); block QTextEdit's default
+    // insert-on-drop which would fight read-only whole-document loading.
+    setAcceptDrops(true);
     m_baseFont = font(); // whatever the platform/style default is, until setBaseFont() is called
 }
 
@@ -382,4 +390,45 @@ void DocumentView::keyPressEvent(QKeyEvent *event)
         return;
     }
     QTextEdit::keyPressEvent(event);
+}
+
+static bool mimeHasLocalFiles(const QMimeData *mime)
+{
+    if (!mime || !mime->hasUrls()) {
+        return false;
+    }
+    for (const QUrl &url : mime->urls()) {
+        if (url.isLocalFile()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void DocumentView::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (mimeHasLocalFiles(event->mimeData())) {
+        event->acceptProposedAction();
+        return;
+    }
+    event->ignore();
+}
+
+void DocumentView::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (mimeHasLocalFiles(event->mimeData())) {
+        event->acceptProposedAction();
+        return;
+    }
+    event->ignore();
+}
+
+void DocumentView::dropEvent(QDropEvent *event)
+{
+    if (!mimeHasLocalFiles(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+    emit filesDropped(event->mimeData()->urls());
+    event->acceptProposedAction();
 }

@@ -5,6 +5,7 @@
 #include <QFont>
 #include <QList>
 #include <QTextEdit>
+#include <QUrl>
 #include <QVector>
 
 #include "document/Sentence.h"
@@ -119,6 +120,9 @@ signals:
     // at a time, so "paste" here means "load this as the new document"
     // rather than inserting text at a cursor position.
     void pasteRequested(QClipboard::Mode mode);
+    // Local file(s) dropped onto the view -- MainWindow opens the first
+    // usable text/HTML path.
+    void filesDropped(const QList<QUrl> &urls);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -126,6 +130,9 @@ protected:
     void leaveEvent(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     void refreshExtraSelections();
