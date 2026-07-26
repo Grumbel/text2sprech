@@ -256,7 +256,7 @@ void MainWindow::setUpUi()
     m_speedSpin->setDecimals(2);
     m_speedSpin->setSuffix(tr("×"));
     m_speedSpin->setMinimumWidth(72);
-    m_speedSpin->setToolTip(tr("Playback speed (also + / − keys)"));
+    m_speedSpin->setToolTip(tr("Playback speed (also [ ] < > + − keys)"));
     m_speedSpin->blockSignals(true);
     m_speedSpin->setValue(m_options.speed);
     m_speedSpin->blockSignals(false);
@@ -377,18 +377,21 @@ void MainWindow::setUpShortcuts()
     connect(playPause, &QAction::triggered, this, &MainWindow::togglePlayPause);
     addAction(playPause);
 
+    // Speed: + / ] / > faster; − / [ / < slower (mpv bracket + YouTube angle keys).
     auto *speedUp = new QAction(this);
-    speedUp->setShortcut(Qt::Key_Plus);
+    speedUp->setShortcuts({Qt::Key_Plus, Qt::Key_BracketRight, Qt::Key_Greater});
     connect(speedUp, &QAction::triggered, this, [this] { m_speedSpin->stepUp(); });
     addAction(speedUp);
 
     auto *speedDown = new QAction(this);
-    speedDown->setShortcut(Qt::Key_Minus);
+    speedDown->setShortcuts({Qt::Key_Minus, Qt::Key_BracketLeft, Qt::Key_Less});
     connect(speedDown, &QAction::triggered, this, [this] { m_speedSpin->stepDown(); });
     addAction(speedDown);
 
     auto *increaseTextSize = new QAction(this);
-    increaseTextSize->setShortcut(QKeySequence::ZoomIn);
+    // ZoomIn is typically Ctrl++; also bind Ctrl+= so layouts where + is
+    // Shift+= don't require the extra modifier.
+    increaseTextSize->setShortcuts({QKeySequence::ZoomIn, QKeySequence(Qt::CTRL | Qt::Key_Equal)});
     connect(increaseTextSize, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
     addAction(increaseTextSize);
 
@@ -396,6 +399,13 @@ void MainWindow::setUpShortcuts()
     decreaseTextSize->setShortcut(QKeySequence::ZoomOut);
     connect(decreaseTextSize, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
     addAction(decreaseTextSize);
+
+    // Platform standard: Ctrl+Q (Linux/Windows), Cmd+Q (macOS). Goes through
+    // closeEvent() so piper-server shutdown and socket cleanup still run.
+    auto *quitAction = new QAction(this);
+    quitAction->setShortcut(QKeySequence::Quit);
+    connect(quitAction, &QAction::triggered, this, &QWidget::close);
+    addAction(quitAction);
 }
 
 void MainWindow::openFile()
