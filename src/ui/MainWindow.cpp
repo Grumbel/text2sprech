@@ -17,7 +17,10 @@
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QSizePolicy>
 #include <QSize>
 #include <QMessageBox>
@@ -278,7 +281,53 @@ void MainWindow::setUpUi()
                        "  padding: 6px 12px;"
                        "}"));
     centralLayout->addWidget(m_warningBanner);
+
+    // Find bar (Ctrl+F) — hidden until requested.
+    m_findBar = new QWidget(central);
+    m_findBar->setObjectName(QStringLiteral("findBar"));
+    auto *findLayout = new QHBoxLayout(m_findBar);
+    findLayout->setContentsMargins(8, 4, 8, 4);
+    findLayout->setSpacing(6);
+    auto *findLabel = new QLabel(tr("Find:"), m_findBar);
+    m_findEdit = new QLineEdit(m_findBar);
+    m_findEdit->setPlaceholderText(tr("Text in document"));
+    m_findEdit->setClearButtonEnabled(true);
+    auto *findPrevBtn = new QToolButton(m_findBar);
+    findPrevBtn->setText(tr("Previous"));
+    findPrevBtn->setToolTip(tr("Find previous (Shift+Enter)"));
+    findPrevBtn->setAutoRaise(true);
+    auto *findNextBtn = new QToolButton(m_findBar);
+    findNextBtn->setText(tr("Next"));
+    findNextBtn->setToolTip(tr("Find next (Enter)"));
+    findNextBtn->setAutoRaise(true);
+    m_findStatusLabel = new QLabel(m_findBar);
+    m_findStatusLabel->setMinimumWidth(80);
+    auto *findCloseBtn = new QToolButton(m_findBar);
+    findCloseBtn->setText(tr("✕"));
+    findCloseBtn->setToolTip(tr("Close find (Esc)"));
+    findCloseBtn->setAutoRaise(true);
+    findLayout->addWidget(findLabel);
+    findLayout->addWidget(m_findEdit, /*stretch=*/1);
+    findLayout->addWidget(findPrevBtn);
+    findLayout->addWidget(findNextBtn);
+    findLayout->addWidget(m_findStatusLabel);
+    findLayout->addWidget(findCloseBtn);
+    m_findBar->setVisible(false);
+    centralLayout->addWidget(m_findBar);
     centralLayout->addWidget(m_documentView, /*stretch=*/1);
+
+    connect(findNextBtn, &QToolButton::clicked, this, &MainWindow::findNext);
+    connect(findPrevBtn, &QToolButton::clicked, this, &MainWindow::findPrevious);
+    connect(findCloseBtn, &QToolButton::clicked, this, &MainWindow::hideFindBar);
+    connect(m_findEdit, &QLineEdit::returnPressed, this, [this] {
+        // Shift+Enter is awkward on QLineEdit; use modifiers on the event
+        // via a small event filter would be overkill — Enter = next always,
+        // Previous button / F3-style handled by shortcuts.
+        findNext();
+    });
+    connect(m_findEdit, &QLineEdit::textChanged, this, [this](const QString &) {
+        m_findStatusLabel->clear();
+    });
 
     // --- Top toolbar: document → speech → reading aids → settings ----------
     auto *toolbar = addToolBar(tr("Controls"));
@@ -588,6 +637,30 @@ void MainWindow::setUpShortcuts()
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
     addAction(quitAction);
+
+    auto *findAction = new QAction(this);
+    findAction->setShortcut(QKeySequence::Find); // Ctrl+F / Cmd+F
+    connect(findAction, &QAction::triggered, this, &MainWindow::showFindBar);
+    addAction(findAction);
+
+    auto *findNextAction = new QAction(this);
+    findNextAction->setShortcut(QKeySequence::FindNext); // often F3 / Ctrl+G
+    connect(findNextAction, &QAction::triggered, this, &MainWindow::findNext);
+    addAction(findNextAction);
+
+    auto *findPrevAction = new QAction(this);
+    findPrevAction->setShortcut(QKeySequence::FindPrevious);
+    connect(findPrevAction, &QAction::triggered, this, &MainWindow::findPrevious);
+    addAction(findPrevAction);
+
+    // Esc closes the find bar when focus is inside it.
+    if (m_findBar) {
+        auto *escapeFind = new QAction(m_findBar);
+        escapeFind->setShortcut(Qt::Key_Escape);
+        escapeFind->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        connect(escapeFind, &QAction::triggered, this, &MainWindow::hideFindBar);
+        m_findBar->addAction(escapeFind);
+    }
 }
 
 void MainWindow::openFile()
@@ -974,6 +1047,112 @@ void MainWindow::setAudioWarning(const QString &message)
     }
     m_warningBanner->setText(message);
     m_warningBanner->setVisible(true);
+}
+
+void MainWindow::showFindBar()
+{
+    if (!m_findBar || !m_findEdit) {
+        return;
+    }
+    m_findBar->setVisible(true);
+    m_findEdit->setFocus(Qt::ShortcutFocusReason);
+    m_findEdit->selectAll();
+}
+
+void MainWindow::hideFindBar()
+{
+    if (!m_findBar) {
+        return;
+    }
+    m_findBar->setVisible(false);
+    if (m_findStatusLabel) {
+        m_findStatusLabel->clear();
+    }
+    // Clear the transient find selection so it doesn't linger as a
+    // native highlight on top of sentence ExtraSelections.
+    QTextCursor cursor = m_documentView->textCursor();
+    cursor.clearSelection();
+    m_documentView->setTextCursor(cursor);
+    m_documentView->setFocus(Qt::OtherFocusReason);
+}
+
+void MainWindow::findNext()
+{
+    if (!m_findBar || !m_findBar->isVisible()) {
+        showFindBar();
+        return;
+    }
+    findInDocument(/*forward=*/true);
+}
+
+void MainWindow::findPrevious()
+{
+    if (!m_findBar || !m_findBar->isVisible()) {
+        showFindBar();
+        return;
+    }
+    findInDocument(/*forward=*/false);
+}
+
+bool MainWindow::findInDocument(bool forward)
+{
+    if (!m_findEdit) {
+        return false;
+    }
+    const QString needle = m_findEdit->text();
+    if (needle.isEmpty()) {
+        m_findStatusLabel->setText(tr("Enter text"));
+        return false;
+    }
+
+    const QTextDocument::FindFlags flags =
+        forward ? QTextDocument::FindFlags() : QTextDocument::FindBackward;
+
+    // Case-insensitive by default — better for a reader than strict match.
+    auto tryFind = [&](bool fromStart) -> bool {
+        if (fromStart) {
+            QTextCursor cursor = m_documentView->textCursor();
+            if (forward) {
+                cursor.movePosition(QTextCursor::Start);
+            } else {
+                cursor.movePosition(QTextCursor::End);
+            }
+            m_documentView->setTextCursor(cursor);
+        }
+        return m_documentView->find(needle, flags);
+    };
+
+    bool found = tryFind(/*fromStart=*/false);
+    if (!found) {
+        // Wrap once.
+        found = tryFind(/*fromStart=*/true);
+        if (found) {
+            m_findStatusLabel->setText(forward ? tr("Wrapped to top") : tr("Wrapped to bottom"));
+        }
+    } else {
+        m_findStatusLabel->clear();
+    }
+
+    if (!found) {
+        m_findStatusLabel->setText(tr("Not found"));
+        statusBar()->showMessage(tr("“%1” not found").arg(needle), 3000);
+        return false;
+    }
+
+    m_documentView->ensureCursorVisible();
+    // Align progress / sentence highlight with the match when possible.
+    const int pos = m_documentView->textCursor().selectionStart();
+    if (!m_sentences.isEmpty() && pos >= 0) {
+        const int idx = sentenceIndexForOffset(pos);
+        if (idx >= 0 && idx < m_sentences.size()) {
+            // Visual only — don't seek playback (user may be reading, not listening).
+            const Sentence &s = m_sentences[idx];
+            m_documentView->highlightRange(s.start, s.end, DocumentView::HighlightState::Stopped);
+            m_currentSentenceIndex = idx;
+            refreshProgress();
+        }
+    }
+    return true;
 }
 
 void MainWindow::setPlaybackEnabled(bool enabled)

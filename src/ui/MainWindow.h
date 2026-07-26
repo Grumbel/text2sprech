@@ -18,8 +18,10 @@ class QCloseEvent;
 class QDragEnterEvent;
 class QDropEvent;
 class QLabel;
+class QLineEdit;
 class QMenu;
 class QSlider;
+class QWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -111,6 +113,15 @@ private:
     void setAudioWarning(const QString &message);
     void setPlaybackEnabled(bool enabled);
 
+    // Find-in-document bar (Ctrl+F).
+    void showFindBar();
+    void hideFindBar();
+    void findNext();
+    void findPrevious();
+    // direction: true = forward, false = backward. Starts from the current
+    // cursor; wraps once if nothing is found to the end/start.
+    bool findInDocument(bool forward);
+
     // --- Recent files + per-document reading position -------------------------
     // Canonical path of the file currently loaded, or empty for paste /
     // welcome / stdin. Positions and the recent list only apply when set.
@@ -144,6 +155,9 @@ private:
     QAction *m_openAction = nullptr;
     QMenu *m_recentMenu = nullptr;
     QLabel *m_warningBanner = nullptr; // hidden unless Piper/audio is unusable
+    QWidget *m_findBar = nullptr;
+    QLineEdit *m_findEdit = nullptr;
+    QLabel *m_findStatusLabel = nullptr;
     QLabel *m_activityLabel;     // left/normal status bar area: current activity
     QSlider *m_progressSlider;   // word-based position through the document
     QLabel *m_elapsedLabel;      // estimated listening time so far
