@@ -180,6 +180,7 @@ private:
     QDoubleSpinBox *m_speedSpin;
     QAction *m_playPauseAction;
     QAction *m_marginsAction = nullptr; // checkable session toggle for extra text margins
+    QAction *m_findAction = nullptr;    // checkable toggle for the find bar
     QAction *m_openAction = nullptr;
     QMenu *m_recentMenu = nullptr;
     QLabel *m_warningBanner = nullptr; // hidden unless Piper/audio is unusable
