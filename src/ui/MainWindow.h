@@ -94,7 +94,7 @@ private:
     // Shared by click-to-jump and cursor-key navigation: bounds-checks,
     // highlights immediately (regardless of playback state), updates the
     // position label, and tells playback to seek there.
-    void jumpToSentence(int index);
+    void jumpToSentence(int index, double fractionWithin = 0.0);
     // Applies whichever startup content source was requested (paste
     // selection/clipboard, or an initial file), once the piper-server
     // connection is actually up. Only ever acts once.
@@ -118,12 +118,16 @@ private:
     // time estimates, and sentence counter. Recomputed when the document,
     // current sentence, or speed changes.
     void refreshProgress();
-    // Maps a word-offset (0 .. m_totalWords) to the sentence that starts
-    // at or before that point -- used when the user drags/clicks the
-    // progress slider.
-    int sentenceIndexForWordOffset(int wordOffset) const;
+    // Maps a progress-unit offset to the sentence that contains it.
+    int sentenceIndexForProgressUnit(int unit) const;
     // User interacted with the progress slider (click or release after drag).
-    void onProgressSliderCommitted(int wordOffset);
+    void onProgressSliderCommitted(int progressUnit);
+    // Live QMediaPlayer position → intra-sentence fraction for the seek bar.
+    void onAudioPositionChanged(qint64 positionMs, qint64 durationMs);
+    // Sub-word resolution for the seek slider (units per word). Word count
+    // alone only jumps at sentence boundaries; this lets the thumb move
+    // smoothly inside a segment and seek mid-sentence.
+    static constexpr int kProgressUnitsPerWord = 100;
     // Persistent warning strip under the toolbar (no Piper / no models /
     // connection failure). Empty message hides it.
     void setAudioWarning(const QString &message);
@@ -201,6 +205,8 @@ private:
     int m_totalWords = 0;
     QVector<int> m_cumulativeWordsBeforeSentence; // parallel to m_sentences
     int m_currentSentenceIndex = -1; // -1 = no position yet (nothing played/clicked)
+    // 0..1 progress through the current sentence's audio (from QMediaPlayer).
+    double m_intraSentenceFraction = 0.0;
     bool m_progressSliderPressed = false; // suppress programmatic feedback while dragging
     // Skip persist while programmatically restoring a saved index on open.
     bool m_restoringPosition = false;

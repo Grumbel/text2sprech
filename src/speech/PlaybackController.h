@@ -42,7 +42,13 @@ public:
     void stop();
     void next();
     void previous();
-    void seekToSentence(int sentenceIndex);
+    // Jump to a sentence. fractionWithin (0..1) seeks into that sentence's
+    // audio once it is loaded — 0 starts at the beginning (default).
+    void seekToSentence(int sentenceIndex, double fractionWithin = 0.0);
+    int currentIndex() const { return m_currentIndex; }
+    // Current media timeline (ms). duration is 0 until the WAV is loaded.
+    qint64 currentPositionMs() const;
+    qint64 currentDurationMs() const;
     // Speed is baked into synthesis (Piper length_scale), not playback rate.
     // Cancels in-flight work and drops cached audio so upcoming sentences
     // are re-synthesized at the new speed (same pattern as setVoice).
@@ -72,6 +78,9 @@ signals:
     // arrived yet -- lets the UI distinguish "buffering" from "playing"
     // instead of looking stuck with no feedback during the gap.
     void preparingAudio(int sentenceId);
+    // Fires as QMediaPlayer advances through the current sentence WAV so the
+    // UI can move the seek bar inside a segment, not only on sentence edges.
+    void audioPositionChanged(qint64 positionMs, qint64 durationMs);
     void playbackFinished();
     void errorOccurred(QString message);
 
@@ -79,11 +88,15 @@ private slots:
     void onAudioReady(int id, int sampleRate, const QByteArray &wav);
     void onSynthesisError(int id, const QString &message);
     void onMediaStatusChanged(QMediaPlayer::MediaStatus status);
+    void onPlayerPositionChanged(qint64 position);
+    void onPlayerDurationChanged(qint64 duration);
 
 private:
     void requestLookahead();
     void playCurrentIfReady();
     void advanceToNext();
+    // Apply m_pendingSeekFraction once duration is known.
+    void applyPendingSeekIfPossible();
 
     PiperClient *m_client; // not owned
     QMediaPlayer m_player;
@@ -101,4 +114,7 @@ private:
     // True after pause() while the current sentence's media is still loaded;
     // play() resumes instead of reloading. Cleared by stop()/seek/new media.
     bool m_paused = false;
+    // 0..1 offset into the next sentence's audio after seekToSentence(..., f).
+    // Applied when duration becomes available; 0 means start of sentence.
+    double m_pendingSeekFraction = 0.0;
 };

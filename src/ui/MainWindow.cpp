@@ -61,9 +61,8 @@ int countWords(const QString &text)
 }
 
 // QSlider's default groove click does a page-step on many styles (especially
-// under Linux), which feels broken for a media seek bar. Jump absolute to
-// the click position, then fall through to the base class so a subsequent
-// drag still works.
+// under Linux), which feels broken for a media seek bar. Handle press/move/
+// release ourselves so a click jumps absolute and a drag keeps seeking.
 class ClickJumpSlider : public QSlider {
 public:
     explicit ClickJumpSlider(Qt::Orientation orientation, QWidget *parent = nullptr)
@@ -74,15 +73,42 @@ public:
 protected:
     void mousePressEvent(QMouseEvent *event) override
     {
-        if (event->button() == Qt::LeftButton && maximum() > minimum()) {
+        if (event->button() == Qt::LeftButton && isEnabled()) {
+            setSliderDown(true); // emits sliderPressed
             setValue(valueFromPos(event->pos()));
+            event->accept();
+            return;
         }
         QSlider::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (isSliderDown()) {
+            setValue(valueFromPos(event->pos()));
+            event->accept();
+            return;
+        }
+        QSlider::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && isSliderDown()) {
+            setValue(valueFromPos(event->pos()));
+            setSliderDown(false); // emits sliderReleased
+            event->accept();
+            return;
+        }
+        QSlider::mouseReleaseEvent(event);
     }
 
 private:
     int valueFromPos(const QPoint &pos) const
     {
+        if (maximum() <= minimum()) {
+            return minimum();
+        }
         QStyleOptionSlider opt;
         initStyleOption(&opt);
         const QRect groove = style()->subControlRect(QStyle::CC_Slider, &opt,
@@ -90,20 +116,17 @@ private:
         const QRect handle = style()->subControlRect(QStyle::CC_Slider, &opt,
                                                      QStyle::SC_SliderHandle, this);
 
-        int sliderMin = 0;
-        int sliderMax = 0;
-        int span = 0;
         if (orientation() == Qt::Horizontal) {
-            sliderMin = groove.x();
-            sliderMax = groove.right() - handle.width() + 1;
-            span = sliderMax - sliderMin;
+            const int sliderMin = groove.x();
+            const int sliderMax = groove.right() - handle.width() + 1;
+            const int span = qMax(1, sliderMax - sliderMin);
             const int x = pos.x() - handle.width() / 2;
             return QStyle::sliderValueFromPosition(minimum(), maximum(), x - sliderMin, span,
                                                    opt.upsideDown);
         }
-        sliderMin = groove.y();
-        sliderMax = groove.bottom() - handle.height() + 1;
-        span = sliderMax - sliderMin;
+        const int sliderMin = groove.y();
+        const int sliderMax = groove.bottom() - handle.height() + 1;
+        const int span = qMax(1, sliderMax - sliderMin);
         const int y = pos.y() - handle.height() / 2;
         return QStyle::sliderValueFromPosition(minimum(), maximum(), y - sliderMin, span,
                                                opt.upsideDown);
@@ -131,7 +154,7 @@ QString formatDuration(int totalSeconds)
         .arg(seconds, 2, 10, QLatin1Char('0'));
 }
 
-int wordsToSeconds(int words, double speed)
+int wordsToSeconds(double words, double speed)
 {
     const double wpm = kWordsPerMinuteBase * qMax(0.1, speed);
     return static_cast<int>((words / wpm) * 60.0 + 0.5);
@@ -211,11 +234,14 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_playback, &PlaybackController::sentenceStarted, this, &MainWindow::onSentenceStarted);
     connect(m_playback, &PlaybackController::preparingAudio, this, &MainWindow::onPreparingAudio);
     connect(m_playback, &PlaybackController::errorOccurred, this, &MainWindow::onPlaybackError);
+    connect(m_playback, &PlaybackController::audioPositionChanged, this, &MainWindow::onAudioPositionChanged);
     connect(m_playback, &PlaybackController::playbackFinished, this, [this] {
         setPlayingUi(false);
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
+        m_intraSentenceFraction = 0.0;
         setActivity(tr("Finished"), ActivityKind::Ready);
         statusBar()->showMessage(tr("Finished"), 3000);
+        refreshProgress();
     });
     connect(m_documentView, &DocumentView::positionClicked, this, &MainWindow::onDocumentClicked);
 
@@ -561,11 +587,12 @@ void MainWindow::setUpUi()
         const int value = m_progressSlider->value();
         if (!m_sentences.isEmpty() && m_totalWords > 0) {
             const double speed = m_speedSpin->value();
-            m_elapsedLabel->setText(formatDuration(wordsToSeconds(value, speed)));
-            m_remainingLabel->setText(
-                QStringLiteral("−%1").arg(formatDuration(wordsToSeconds(m_totalWords - value, speed))));
+            const double words = double(value) / double(kProgressUnitsPerWord);
+            m_elapsedLabel->setText(formatDuration(wordsToSeconds(words, speed)));
+            m_remainingLabel->setText(QStringLiteral("−%1").arg(
+                formatDuration(wordsToSeconds(double(m_totalWords) - words, speed))));
             m_sentenceLabel->setText(
-                tr("%1 / %2").arg(sentenceIndexForWordOffset(value) + 1).arg(m_sentences.size()));
+                tr("%1 / %2").arg(sentenceIndexForProgressUnit(value) + 1).arg(m_sentences.size()));
         }
     });
     connect(m_progressSlider, &QSlider::sliderReleased, this, [this] {
@@ -577,11 +604,11 @@ void MainWindow::setUpUi()
         // on every tick (that would thrash synthesis).
         if (!m_sentences.isEmpty() && m_totalWords > 0) {
             const double speed = m_speedSpin->value();
-            const int elapsedSec = wordsToSeconds(value, speed);
-            const int remainingSec = wordsToSeconds(m_totalWords - value, speed);
-            m_elapsedLabel->setText(formatDuration(elapsedSec));
-            m_remainingLabel->setText(QStringLiteral("−%1").arg(formatDuration(remainingSec)));
-            const int idx = sentenceIndexForWordOffset(value);
+            const double words = double(value) / double(kProgressUnitsPerWord);
+            m_elapsedLabel->setText(formatDuration(wordsToSeconds(words, speed)));
+            m_remainingLabel->setText(QStringLiteral("−%1").arg(
+                formatDuration(wordsToSeconds(double(m_totalWords) - words, speed))));
+            const int idx = sentenceIndexForProgressUnit(value);
             m_sentenceLabel->setText(tr("%1 / %2").arg(idx + 1).arg(m_sentences.size()));
         }
     });
@@ -659,7 +686,9 @@ void MainWindow::setUpUi()
         // (same as pause / finished) rather than clearing the highlight.
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setPlayingUi(false);
+        m_intraSentenceFraction = 0.0; // stop() restarts the sentence from 0 next play
         setActivity(tr("Stopped"), ActivityKind::Idle);
+        refreshProgress();
     });
 
     auto *nextBtn = makeTransportButton(QStyle::SP_MediaSkipForward,
@@ -1035,6 +1064,7 @@ void MainWindow::reindexSentences()
     }
     m_totalWords = running;
     m_currentSentenceIndex = -1; // no position yet in the freshly (re)loaded document
+    m_intraSentenceFraction = 0.0;
     refreshProgress();
 }
 
@@ -1090,9 +1120,24 @@ void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
 {
     m_documentView->highlightRange(start, end, DocumentView::HighlightState::Playing);
     m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
+    // Keep m_intraSentenceFraction: mid-sentence seeks set it (and the player
+    // position) before sentenceStarted; a normal advance reports 0 via
+    // audioPositionChanged almost immediately.
     setActivity(tr("Playing"), ActivityKind::Active);
     refreshProgress();
     saveCurrentPosition();
+}
+
+void MainWindow::onAudioPositionChanged(qint64 positionMs, qint64 durationMs)
+{
+    if (durationMs > 0) {
+        m_intraSentenceFraction = qBound(0.0, double(positionMs) / double(durationMs), 1.0);
+    } else {
+        m_intraSentenceFraction = 0.0;
+    }
+    if (!m_progressSliderPressed) {
+        refreshProgress();
+    }
 }
 
 void MainWindow::onPreparingAudio(int sentenceId)
@@ -1116,12 +1161,13 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
     jumpToSentence(sentenceIndexForOffset(plainTextOffset));
 }
 
-void MainWindow::jumpToSentence(int index)
+void MainWindow::jumpToSentence(int index, double fractionWithin)
 {
     if (m_sentences.isEmpty()) {
         return;
     }
     index = std::clamp(index, 0, static_cast<int>(m_sentences.size()) - 1);
+    fractionWithin = qBound(0.0, fractionWithin, 1.0);
     const Sentence &sentence = m_sentences[index];
     // Immediate visual feedback regardless of playback state -- if we're
     // paused/stopped, seekToSentence() below won't emit sentenceStarted
@@ -1134,8 +1180,9 @@ void MainWindow::jumpToSentence(int index)
         : DocumentView::HighlightState::Stopped;
     m_documentView->highlightRange(sentence.start, sentence.end, state);
     m_currentSentenceIndex = index;
+    m_intraSentenceFraction = fractionWithin;
     refreshProgress();
-    m_playback->seekToSentence(index);
+    m_playback->seekToSentence(index, fractionWithin);
     if (!m_restoringPosition) {
         saveCurrentPosition();
     }
@@ -1500,25 +1547,30 @@ void MainWindow::refreshProgress()
     }
 
     const double speed = m_speedSpin->value();
-    const int totalSec = wordsToSeconds(m_totalWords, speed);
+    const int totalSec = wordsToSeconds(double(m_totalWords), speed);
+    const int maxUnits = qMax(1, m_totalWords * kProgressUnitsPerWord);
 
-    int wordsSoFar = 0;
+    double wordsSoFar = 0.0;
     int displayIndex = 0; // 1-based when positioned; 0 means "not started"
     if (m_currentSentenceIndex >= 0
         && m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
-        wordsSoFar = m_cumulativeWordsBeforeSentence[m_currentSentenceIndex];
+        wordsSoFar = double(m_cumulativeWordsBeforeSentence[m_currentSentenceIndex]);
+        const int wordsInSentence = countWords(m_sentences[m_currentSentenceIndex].text);
+        wordsSoFar += m_intraSentenceFraction * double(qMax(1, wordsInSentence));
         displayIndex = m_currentSentenceIndex + 1;
     }
 
     const int elapsedSec = wordsToSeconds(wordsSoFar, speed);
-    const int remainingSec = wordsToSeconds(m_totalWords - wordsSoFar, speed);
+    const int remainingSec = wordsToSeconds(double(m_totalWords) - wordsSoFar, speed);
+    const int unitValue = qBound(
+        0, static_cast<int>(wordsSoFar * double(kProgressUnitsPerWord) + 0.5), maxUnits);
 
     // Don't fight the user while they're dragging the thumb.
     if (!m_progressSliderPressed) {
         m_progressSlider->blockSignals(true);
         m_progressSlider->setEnabled(true);
-        m_progressSlider->setRange(0, qMax(1, m_totalWords));
-        m_progressSlider->setValue(qBound(0, wordsSoFar, m_progressSlider->maximum()));
+        m_progressSlider->setRange(0, maxUnits);
+        m_progressSlider->setValue(unitValue);
         m_progressSlider->blockSignals(false);
     }
 
@@ -1531,7 +1583,7 @@ void MainWindow::refreshProgress()
     }
 
     const int percent = m_totalWords > 0
-        ? static_cast<int>(100.0 * wordsSoFar / m_totalWords + 0.5)
+        ? static_cast<int>(100.0 * wordsSoFar / double(m_totalWords) + 0.5)
         : 0;
     m_progressSlider->setToolTip(
         tr("Position: %1% · ~%2 total at current speed · click or drag to jump")
@@ -1539,25 +1591,31 @@ void MainWindow::refreshProgress()
             .arg(formatDuration(totalSec)));
 }
 
-int MainWindow::sentenceIndexForWordOffset(int wordOffset) const
+int MainWindow::sentenceIndexForProgressUnit(int unit) const
 {
     if (m_sentences.isEmpty()) {
         return 0;
     }
-    wordOffset = qBound(0, wordOffset, m_totalWords);
+    const double wordOffset = double(unit) / double(kProgressUnitsPerWord);
     // Last sentence whose start (words before it) is <= wordOffset.
     auto it = std::upper_bound(
-        m_cumulativeWordsBeforeSentence.begin(), m_cumulativeWordsBeforeSentence.end(), wordOffset);
+        m_cumulativeWordsBeforeSentence.begin(), m_cumulativeWordsBeforeSentence.end(), wordOffset,
+        [](double off, int before) { return off < double(before); });
     int index = static_cast<int>(it - m_cumulativeWordsBeforeSentence.begin()) - 1;
     return qBound(0, index, static_cast<int>(m_sentences.size()) - 1);
 }
 
-void MainWindow::onProgressSliderCommitted(int wordOffset)
+void MainWindow::onProgressSliderCommitted(int progressUnit)
 {
     if (m_sentences.isEmpty()) {
         return;
     }
-    jumpToSentence(sentenceIndexForWordOffset(wordOffset));
+    const int index = sentenceIndexForProgressUnit(progressUnit);
+    const double wordPos = double(progressUnit) / double(kProgressUnitsPerWord);
+    const int before = m_cumulativeWordsBeforeSentence.value(index, 0);
+    const int wordsIn = qMax(1, countWords(m_sentences[index].text));
+    const double fraction = qBound(0.0, (wordPos - double(before)) / double(wordsIn), 1.0);
+    jumpToSentence(index, fraction);
 }
 
 void MainWindow::setCurrentDocumentPath(const QString &path)

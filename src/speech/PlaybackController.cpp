@@ -16,6 +16,18 @@ PlaybackController::PlaybackController(PiperClient *client, QObject *parent)
     connect(m_client, &PiperClient::audioReady, this, &PlaybackController::onAudioReady);
     connect(m_client, &PiperClient::synthesisError, this, &PlaybackController::onSynthesisError);
     connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, &PlaybackController::onMediaStatusChanged);
+    connect(&m_player, &QMediaPlayer::positionChanged, this, &PlaybackController::onPlayerPositionChanged);
+    connect(&m_player, &QMediaPlayer::durationChanged, this, &PlaybackController::onPlayerDurationChanged);
+}
+
+qint64 PlaybackController::currentPositionMs() const
+{
+    return m_player.position();
+}
+
+qint64 PlaybackController::currentDurationMs() const
+{
+    return m_player.duration();
 }
 
 void PlaybackController::setVolume(float volume)
@@ -97,6 +109,7 @@ void PlaybackController::stop()
     m_playing = false;
     m_paused = false;
     m_waitingForAudio = false;
+    m_pendingSeekFraction = 0.0;
     m_player.stop();
     // Drop the current media so the next play() reloads from the start.
     m_player.setSource(QUrl());
@@ -120,19 +133,20 @@ void PlaybackController::previous()
     seekToSentence(m_currentIndex - 1);
 }
 
-void PlaybackController::seekToSentence(int index)
+void PlaybackController::seekToSentence(int index, double fractionWithin)
 {
     if (index < 0 || index >= m_sentences.size()) {
         if (index >= m_sentences.size()) {
             m_playing = false;
             m_paused = false;
+            m_pendingSeekFraction = 0.0;
             emit playbackFinished();
         }
         return;
     }
     bool wasPlaying = m_playing;
-    // Seeking always starts the target sentence from the beginning.
     m_paused = false;
+    m_pendingSeekFraction = qBound(0.0, fractionWithin, 1.0);
     m_player.stop();
     m_player.setSource(QUrl());
     m_currentAudioBuffer.reset();
@@ -141,6 +155,9 @@ void PlaybackController::seekToSentence(int index)
         play();
     } else {
         requestLookahead();
+        // Not playing: still load this sentence so a later play() can resume
+        // mid-segment if the user seeked with a fraction. Audio is requested
+        // via lookahead; position applies on the next playCurrentIfReady.
     }
 }
 
@@ -210,9 +227,27 @@ void PlaybackController::playCurrentIfReady()
 
     m_player.setSourceDevice(m_currentAudioBuffer.get(), QUrl("wav-audio://sentence"));
     m_player.play();
+    applyPendingSeekIfPossible();
 
     emit sentenceStarted(s.id, s.start, s.end);
+    // Report the post-seek position so the UI does not flash to 0 when
+    // starting mid-sentence.
+    emit audioPositionChanged(m_player.position(), m_player.duration());
     requestLookahead();
+}
+
+void PlaybackController::applyPendingSeekIfPossible()
+{
+    if (m_pendingSeekFraction <= 0.0) {
+        return;
+    }
+    const qint64 duration = m_player.duration();
+    if (duration <= 0) {
+        return; // durationChanged will retry
+    }
+    const qint64 target = static_cast<qint64>(m_pendingSeekFraction * double(duration));
+    m_player.setPosition(qBound(qint64(0), target, duration));
+    m_pendingSeekFraction = 0.0;
 }
 
 void PlaybackController::advanceToNext()
@@ -253,6 +288,23 @@ void PlaybackController::onSynthesisError(int id, const QString &message)
 void PlaybackController::onMediaStatusChanged(QMediaPlayer::MediaStatus status)
 {
     if (status == QMediaPlayer::EndOfMedia && m_playing) {
+        m_pendingSeekFraction = 0.0;
         advanceToNext();
+        return;
     }
+    // Some backends only report a usable duration after buffering.
+    if (status == QMediaPlayer::BufferedMedia || status == QMediaPlayer::LoadedMedia) {
+        applyPendingSeekIfPossible();
+    }
+}
+
+void PlaybackController::onPlayerPositionChanged(qint64 position)
+{
+    emit audioPositionChanged(position, m_player.duration());
+}
+
+void PlaybackController::onPlayerDurationChanged(qint64 duration)
+{
+    applyPendingSeekIfPossible();
+    emit audioPositionChanged(m_player.position(), duration);
 }
