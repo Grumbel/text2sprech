@@ -25,6 +25,7 @@ struct FileConfig {
     QString fontFamily;
     int fontPointSize = -1; // <= 0 means "leave the widget's default size alone"
     DocumentView::Colors colors; // invalid entries = built-in theme defaults
+    int extraMarginSize = DocumentView::kDefaultExtraMarginSize;
 };
 
 QColor readColorKey(QSettings &settings, const QString &key)
@@ -71,6 +72,21 @@ FileConfig loadFileConfig()
     config.colors.preparing = readColorKey(settings, QStringLiteral("colorPreparing"));
     config.colors.stopped = readColorKey(settings, QStringLiteral("colorStopped"));
     config.colors.hover = readColorKey(settings, QStringLiteral("colorHover"));
+
+    bool marginOk = false;
+    const int margin = settings.value(QStringLiteral("extraMarginSize"),
+                                      DocumentView::kDefaultExtraMarginSize)
+                           .toInt(&marginOk);
+    if (marginOk && margin >= DocumentView::kMinExtraMarginSize
+        && margin <= DocumentView::kMaxExtraMarginSize) {
+        config.extraMarginSize = margin;
+    } else if (settings.contains(QStringLiteral("extraMarginSize"))) {
+        qWarning().noquote() << "Config: invalid extraMarginSize value"
+                              << settings.value(QStringLiteral("extraMarginSize"))
+                              << "(expected" << DocumentView::kMinExtraMarginSize << "-"
+                              << DocumentView::kMaxExtraMarginSize << "); using"
+                              << DocumentView::kDefaultExtraMarginSize;
+    }
 
     settings.endGroup();
     return config;
@@ -163,6 +179,7 @@ int main(int argc, char *argv[])
     options.fontFamily = fileConfig.fontFamily; // config-file only, no CLI flag
     options.fontPointSize = fileConfig.fontPointSize; // config-file only, no CLI flag
     options.colors = fileConfig.colors; // config-file only, no CLI flag
+    options.extraMarginSize = fileConfig.extraMarginSize; // config-file only, no CLI flag
 
     const QStringList positional = parser.positionalArguments();
     if (!positional.isEmpty()) {

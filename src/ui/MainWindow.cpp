@@ -111,6 +111,8 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     }
     m_documentView->setBaseFont(initialFont);
     m_documentView->setColors(m_options.colors);
+    m_documentView->setExtraMarginSize(m_options.extraMarginSize);
+    // Margins stay off until the user toggles the toolbar button (session).
 
     m_piperClient = new PiperClient(this);
     m_playback = new PlaybackController(m_piperClient, this);
@@ -436,6 +438,13 @@ void MainWindow::setUpUi()
     auto *increaseTextSizeAction = toolbar->addAction(tr("A+"));
     increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
+
+    m_marginsAction = toolbar->addAction(tr("Margins"));
+    m_marginsAction->setCheckable(true);
+    m_marginsAction->setChecked(false);
+    m_marginsAction->setToolTip(
+        tr("Extra padding around the text (size set in Preferences)"));
+    connect(m_marginsAction, &QAction::toggled, m_documentView, &DocumentView::setExtraMarginsEnabled);
 
     auto *findToolbarAction = toolbar->addAction(
         themeIcon(QStringLiteral("edit-find"), style()->standardIcon(QStyle::SP_FileDialogContentsView)),
@@ -1291,6 +1300,16 @@ void MainWindow::openPreferences()
     defaultColors.preparing = readColor(QStringLiteral("colorPreparing"));
     defaultColors.stopped = readColor(QStringLiteral("colorStopped"));
     defaultColors.hover = readColor(QStringLiteral("colorHover"));
+
+    bool marginOk = false;
+    const int marginVal = settings.value(QStringLiteral("extraMarginSize"),
+                                         DocumentView::kDefaultExtraMarginSize)
+                              .toInt(&marginOk);
+    const int defaultExtraMargin =
+        (marginOk && marginVal >= DocumentView::kMinExtraMarginSize
+         && marginVal <= DocumentView::kMaxExtraMarginSize)
+            ? marginVal
+            : DocumentView::kDefaultExtraMarginSize;
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("voices"));
@@ -1304,7 +1323,7 @@ void MainWindow::openPreferences()
     defaultFont.setPointSize(defaultPointSize);
 
     PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors,
-                             extraVoiceDirs, this);
+                             extraVoiceDirs, defaultExtraMargin, this);
 
     auto applyToSession = [this, &dialog] {
         if (!dialog.voice().isEmpty()) {
@@ -1313,6 +1332,7 @@ void MainWindow::openPreferences()
         m_speedSpin->setValue(dialog.speed());
         m_documentView->setBaseFont(dialog.font());
         m_documentView->setColors(dialog.colors());
+        m_documentView->setExtraMarginSize(dialog.extraMarginSize());
         statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
     };
     connect(&dialog, &PreferencesDialog::applyRequested, this, applyToSession);
@@ -1336,6 +1356,7 @@ void MainWindow::openPreferences()
     settings.setValue(QStringLiteral("speed"), dialog.speed());
     settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
     settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
+    settings.setValue(QStringLiteral("extraMarginSize"), dialog.extraMarginSize());
     storeColor(QStringLiteral("colorText"), chosenColors.text);
     storeColor(QStringLiteral("colorBackground"), chosenColors.background);
     storeColor(QStringLiteral("colorPlaying"), chosenColors.playing);

@@ -94,6 +94,21 @@ public:
     // abstract "zoom level" -- see setBaseFont().
     QFont baseFont() const { return m_baseFont; }
 
+    // Extra document margins (QTextDocument::documentMargin) for a
+    // narrower reading column. Size is the pixel value used when enabled;
+    // when disabled the Qt default (4) is restored. Size may be changed
+    // while disabled and takes effect the next time margins are turned on.
+    bool extraMarginsEnabled() const { return m_extraMarginsEnabled; }
+    int extraMarginSize() const { return m_extraMarginSize; }
+    void setExtraMarginsEnabled(bool enabled);
+    void setExtraMarginSize(int pixels);
+
+    // Built-in defaults for the margin preference spin box / config.
+    static constexpr int kDefaultExtraMarginSize = 64;
+    static constexpr int kMinExtraMarginSize = 8;
+    static constexpr int kMaxExtraMarginSize = 240;
+    static constexpr int kBuiltinDocumentMargin = 4; // Qt default
+
 public slots:
     // Sets the base font (family + point size) and applies it immediately.
     // Set on the QTextDocument itself (setDefaultFont()), so it persists
@@ -166,4 +181,9 @@ private:
 
     Colors m_colors; // invalid entries => theme builtins
     QFont m_baseFont;
+
+    void applyDocumentMargins();
+
+    bool m_extraMarginsEnabled = false;
+    int m_extraMarginSize = kDefaultExtraMarginSize;
 };

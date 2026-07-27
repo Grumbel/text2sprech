@@ -43,6 +43,9 @@ public:
         int fontPointSize = -1;
         // View colors from config (invalid QColor = built-in theme default).
         DocumentView::Colors colors;
+        // Extra text margin size (px) when the toolbar Margins toggle is on.
+        // Config-file only; the toggle itself is session state.
+        int extraMarginSize = DocumentView::kDefaultExtraMarginSize;
         // At most one of these "start with X" sources is used, in this
         // priority order: pasteSelection, pasteClipboard, initialFile.
         bool pasteClipboard = false;
@@ -156,6 +159,7 @@ private:
     QComboBox *m_voiceCombo;
     QDoubleSpinBox *m_speedSpin;
     QAction *m_playPauseAction;
+    QAction *m_marginsAction = nullptr; // checkable session toggle for extra text margins
     QAction *m_openAction = nullptr;
     QMenu *m_recentMenu = nullptr;
     QLabel *m_warningBanner = nullptr; // hidden unless Piper/audio is unusable

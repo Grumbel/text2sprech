@@ -36,7 +36,8 @@ QString defaultUserVoicesDirPath()
 PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice,
                                       double defaultSpeed, const QFont &defaultFont,
                                       const DocumentView::Colors &defaultColors,
-                                      const QStringList &defaultExtraVoiceDirs, QWidget *parent)
+                                      const QStringList &defaultExtraVoiceDirs,
+                                      int defaultExtraMarginSize, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
@@ -69,6 +70,19 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_fontSizeSpin->setRange(6, 72);
     m_fontSizeSpin->setSuffix(tr(" pt"));
     m_fontSizeSpin->setValue(defaultFont.pointSize() > 0 ? defaultFont.pointSize() : 12);
+
+    m_extraMarginSpin = new QSpinBox(this);
+    m_extraMarginSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_extraMarginSpin->setMinimumWidth(90);
+    m_extraMarginSpin->setRange(DocumentView::kMinExtraMarginSize, DocumentView::kMaxExtraMarginSize);
+    m_extraMarginSpin->setSingleStep(8);
+    m_extraMarginSpin->setSuffix(tr(" px"));
+    m_extraMarginSpin->setToolTip(
+        tr("Padding around the text when the toolbar Margins button is on. "
+           "Does not change the default tight layout."));
+    m_extraMarginSpin->setValue(
+        qBound(DocumentView::kMinExtraMarginSize, defaultExtraMarginSize,
+              DocumentView::kMaxExtraMarginSize));
 
     auto *fontRow = new QWidget(this);
     auto *fontRowLayout = new QHBoxLayout(fontRow);
@@ -120,6 +134,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     form->addRow(tr("Voice:"), m_voiceCombo);
     form->addRow(tr("Speed:"), m_speedSpin);
     form->addRow(tr("Font:"), fontRow);
+    form->addRow(tr("Extra text margin:"), m_extraMarginSpin);
     // Single-widget addRow → spans both columns (full dialog content width).
     form->addRow(voicesBlock);
     form->addRow(tr("Extra voice dirs:"), m_extraVoiceDirsEdit);
@@ -142,10 +157,11 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
 
     auto *note = new QLabel(
         tr("Save writes these as the defaults for the next time %1 starts "
-           "(current session unchanged). Apply pushes voice/speed/font/colors "
-           "into the current session only — extra voice directories always need "
-           "a restart. The reset button on each color restores the built-in "
-           "theme default.")
+           "(current session unchanged). Apply pushes voice/speed/font/colors/"
+           "margin size into the current session only — extra voice directories "
+           "always need a restart. The Margins toolbar button turns the extra "
+           "text margin on or off for this session. The reset button on each "
+           "color restores the built-in theme default.")
             .arg(QStringLiteral("text2sprech")),
         this);
     note->setWordWrap(true);
@@ -286,4 +302,9 @@ QStringList PreferencesDialog::extraVoiceDirs() const
         }
     }
     return out;
+}
+
+int PreferencesDialog::extraMarginSize() const
+{
+    return m_extraMarginSpin ? m_extraMarginSpin->value() : DocumentView::kDefaultExtraMarginSize;
 }

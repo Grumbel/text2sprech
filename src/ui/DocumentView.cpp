@@ -92,6 +92,40 @@ void DocumentView::decreaseTextSize()
     setBaseFont(f);
 }
 
+void DocumentView::setExtraMarginsEnabled(bool enabled)
+{
+    if (m_extraMarginsEnabled == enabled) {
+        return;
+    }
+    m_extraMarginsEnabled = enabled;
+    applyDocumentMargins();
+}
+
+void DocumentView::setExtraMarginSize(int pixels)
+{
+    const int clamped = qBound(kMinExtraMarginSize, pixels, kMaxExtraMarginSize);
+    if (m_extraMarginSize == clamped) {
+        // Still re-apply if currently enabled so a no-op clamp after a bad
+        // config value doesn't leave the document on the old margin.
+        if (m_extraMarginsEnabled) {
+            applyDocumentMargins();
+        }
+        return;
+    }
+    m_extraMarginSize = clamped;
+    if (m_extraMarginsEnabled) {
+        applyDocumentMargins();
+    }
+}
+
+void DocumentView::applyDocumentMargins()
+{
+    // documentMargin is a property of QTextDocument and survives
+    // loadPlainText()/loadHtml() on the same document instance.
+    document()->setDocumentMargin(
+        m_extraMarginsEnabled ? m_extraMarginSize : kBuiltinDocumentMargin);
+}
+
 void DocumentView::setColors(const Colors &colors)
 {
     m_colors = colors;

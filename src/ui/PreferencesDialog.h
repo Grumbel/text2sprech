@@ -38,7 +38,9 @@ public:
     // entry); the primary ~/.local/share/text2sprech/voices dir is always used.
     PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice, double defaultSpeed,
                        const QFont &defaultFont, const DocumentView::Colors &defaultColors,
-                       const QStringList &defaultExtraVoiceDirs = {}, QWidget *parent = nullptr);
+                       const QStringList &defaultExtraVoiceDirs = {},
+                       int defaultExtraMarginSize = DocumentView::kDefaultExtraMarginSize,
+                       QWidget *parent = nullptr);
 
     QString voice() const;
     double speed() const;
@@ -47,6 +49,8 @@ public:
     // Extra directories to scan for Piper .onnx voices (does not include the
     // built-in user drop-in folder). Applied on next app start.
     QStringList extraVoiceDirs() const;
+    // Pixel size for DocumentView extra margins when the toolbar toggle is on.
+    int extraMarginSize() const;
 
 signals:
     // Emitted when the user clicks Apply. Caller should push getters into
@@ -75,6 +79,7 @@ private:
     QDoubleSpinBox *m_speedSpin;
     QFontComboBox *m_fontCombo;
     QSpinBox *m_fontSizeSpin;
+    QSpinBox *m_extraMarginSpin = nullptr;
     QPlainTextEdit *m_extraVoiceDirsEdit = nullptr;
 
     ColorRow *m_textColor = nullptr;
