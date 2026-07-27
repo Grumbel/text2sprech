@@ -11,6 +11,7 @@
 #include <QFont>
 #include <QFontComboBox>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
@@ -78,7 +79,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_extraMarginSpin->setSingleStep(8);
     m_extraMarginSpin->setSuffix(tr(" px"));
     m_extraMarginSpin->setToolTip(
-        tr("Padding around the text when the toolbar Margins button is on. "
+        tr("Padding around the text when the Formatting → Margins button is on. "
            "Does not change the default tight layout."));
     m_extraMarginSpin->setValue(
         qBound(DocumentView::kMinExtraMarginSize, defaultExtraMarginSize,
@@ -91,22 +92,13 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     fontRowLayout->addWidget(m_fontSizeSpin, /*stretch=*/1);
 
     const QString voicesDir = defaultUserVoicesDirPath();
-    // Full-width spanning block (not a form field next to "Voices:"): a
-    // word-wrapped QLabel in the field column gets a tiny preferred width
-    // from QFormLayout, so the text wrapped early and looked clipped even
-    // when the dialog still had free horizontal space.
-    auto *voicesBlock = new QWidget(this);
-    auto *voicesBlockLayout = new QVBoxLayout(voicesBlock);
-    voicesBlockLayout->setContentsMargins(0, 4, 0, 0);
-    voicesBlockLayout->setSpacing(4);
-    auto *voicesTitle = new QLabel(tr("<b>Voice models folder</b>"), voicesBlock);
     auto *voicesHelp = new QLabel(
         tr("Drop Piper <code>.onnx</code> and matching <code>.onnx.json</code> files here "
            "(any language). Created automatically if missing:"),
-        voicesBlock);
+        this);
     voicesHelp->setWordWrap(true);
     voicesHelp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto *voicesPath = new QLabel(voicesDir, voicesBlock);
+    auto *voicesPath = new QLabel(voicesDir, this);
     voicesPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
     voicesPath->setWordWrap(true);
     voicesPath->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -114,9 +106,6 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     pathFont.setFamily(QStringLiteral("monospace"));
     pathFont.setStyleHint(QFont::Monospace);
     voicesPath->setFont(pathFont);
-    voicesBlockLayout->addWidget(voicesTitle);
-    voicesBlockLayout->addWidget(voicesHelp);
-    voicesBlockLayout->addWidget(voicesPath);
 
     m_extraVoiceDirsEdit = new QPlainTextEdit(this);
     m_extraVoiceDirsEdit->setPlaceholderText(
@@ -125,43 +114,56 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_extraVoiceDirsEdit->setFixedHeight(72);
     m_extraVoiceDirsEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
-    auto *form = new QFormLayout;
-    form->setLabelAlignment(Qt::AlignRight);
-    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-    form->setRowWrapPolicy(QFormLayout::DontWrapRows);
-    form->setHorizontalSpacing(12);
-    form->setVerticalSpacing(10);
-    form->addRow(tr("Voice:"), m_voiceCombo);
-    form->addRow(tr("Speed:"), m_speedSpin);
-    form->addRow(tr("Font:"), fontRow);
-    form->addRow(tr("Extra text margin:"), m_extraMarginSpin);
-    // Single-widget addRow → spans both columns (full dialog content width).
-    form->addRow(voicesBlock);
-    form->addRow(tr("Extra voice dirs:"), m_extraVoiceDirsEdit);
+    auto makeForm = [](QWidget *parent) {
+        auto *form = new QFormLayout(parent);
+        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::DontWrapRows);
+        form->setHorizontalSpacing(12);
+        form->setVerticalSpacing(8);
+        form->setContentsMargins(10, 8, 10, 10);
+        return form;
+    };
 
-    // Theme defaults for reset + swatch preview when no override is stored.
+    // --- Voice (startup defaults + model paths) -----------------------------
+    auto *voiceGroup = new QGroupBox(tr("Voice"), this);
+    auto *voiceForm = makeForm(voiceGroup);
+    voiceForm->addRow(tr("Default voice:"), m_voiceCombo);
+    voiceForm->addRow(tr("Default speed:"), m_speedSpin);
+    voiceForm->addRow(voicesHelp);
+    voiceForm->addRow(voicesPath);
+    voiceForm->addRow(tr("Extra voice dirs:"), m_extraVoiceDirsEdit);
+
+    // --- Formatting (font + reading column) --------------------------------
+    auto *formatGroup = new QGroupBox(tr("Formatting"), this);
+    auto *formatForm = makeForm(formatGroup);
+    formatForm->addRow(tr("Font:"), fontRow);
+    formatForm->addRow(tr("Extra text margin:"), m_extraMarginSpin);
+
+    // --- Colors ------------------------------------------------------------
     const bool dark = palette().color(QPalette::Base).lightness() < 128;
     const DocumentView::Colors themeDefaults = DocumentView::builtinDefaults(dark);
 
-    form->addRow(new QLabel(tr("Colors"), this));
-    m_textColor = addColorRow(form, tr("Text:"), defaultColors.text, themeDefaults.text);
+    auto *colorsGroup = new QGroupBox(tr("Colors"), this);
+    auto *colorsForm = makeForm(colorsGroup);
+    m_textColor = addColorRow(colorsForm, tr("Text:"), defaultColors.text, themeDefaults.text);
     m_backgroundColor =
-        addColorRow(form, tr("Background:"), defaultColors.background, themeDefaults.background);
+        addColorRow(colorsForm, tr("Background:"), defaultColors.background, themeDefaults.background);
     m_playingColor =
-        addColorRow(form, tr("Playing highlight:"), defaultColors.playing, themeDefaults.playing);
+        addColorRow(colorsForm, tr("Playing highlight:"), defaultColors.playing, themeDefaults.playing);
     m_preparingColor =
-        addColorRow(form, tr("Preparing highlight:"), defaultColors.preparing, themeDefaults.preparing);
+        addColorRow(colorsForm, tr("Preparing highlight:"), defaultColors.preparing, themeDefaults.preparing);
     m_stoppedColor =
-        addColorRow(form, tr("Stopped highlight:"), defaultColors.stopped, themeDefaults.stopped);
-    m_hoverColor = addColorRow(form, tr("Hover highlight:"), defaultColors.hover, themeDefaults.hover);
+        addColorRow(colorsForm, tr("Stopped highlight:"), defaultColors.stopped, themeDefaults.stopped);
+    m_hoverColor = addColorRow(colorsForm, tr("Hover highlight:"), defaultColors.hover, themeDefaults.hover);
 
     auto *note = new QLabel(
         tr("Save writes these as the defaults for the next time %1 starts "
            "(current session unchanged). Apply pushes voice/speed/font/colors/"
            "margin size into the current session only — extra voice directories "
-           "always need a restart. The Margins toolbar button turns the extra "
-           "text margin on or off for this session. The reset button on each "
-           "color restores the built-in theme default.")
+           "always need a restart. The Margins button in the Formatting group "
+           "turns the extra text margin on or off for this session. The reset "
+           "button on each color restores the built-in theme default.")
             .arg(QStringLiteral("text2sprech")),
         this);
     note->setWordWrap(true);
@@ -180,8 +182,10 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(14);
-    layout->addLayout(form);
+    layout->setSpacing(12);
+    layout->addWidget(voiceGroup);
+    layout->addWidget(formatGroup);
+    layout->addWidget(colorsGroup);
     layout->addWidget(note);
     layout->addWidget(buttons);
 
