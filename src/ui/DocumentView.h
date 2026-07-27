@@ -76,7 +76,15 @@ public:
 
     // start/end are plain-text offsets (end exclusive), matching Sentence.
     // state selects the highlight color (playing / preparing / stopped).
+    // Highlights the full [start, end) range (used for hover-independent
+    // whole-sentence marks such as preparing).
     void highlightRange(int start, int end, HighlightState state = HighlightState::Stopped);
+    // Fine-grained position inside a sentence: paints the full sentence in a
+    // muted "context" color and the spoken/selected prefix [start, progressEnd)
+    // in the active state color. progressEnd is clamped to [start, end].
+    // fraction 0 still shows a thin start mark so the caret position is visible.
+    void highlightSentenceProgress(int sentenceStart, int sentenceEnd, double fraction,
+                                   HighlightState state = HighlightState::Playing);
     // Recolor the existing current highlight without moving it (e.g. pause
     // -> Stopped, or preparing -> Playing once audio arrives). No-op if
     // there is no current highlight.
@@ -170,10 +178,14 @@ private:
     QVector<Sentence> m_sentences;
 
     QTextEdit::ExtraSelection m_currentHighlight;
+    QTextEdit::ExtraSelection m_contextHighlight; // full sentence, muted under progress
     bool m_hasCurrentHighlight = false;
+    bool m_hasContextHighlight = false;
     HighlightState m_highlightState = HighlightState::Stopped;
     int m_highlightStart = -1;
     int m_highlightEnd = -1;
+    int m_sentenceStart = -1;
+    int m_sentenceEnd = -1;
 
     QTextEdit::ExtraSelection m_hoverHighlight;
     bool m_hasHoverHighlight = false;

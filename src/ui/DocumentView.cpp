@@ -3,6 +3,7 @@
 
 #include "DocumentView.h"
 
+#include <QtGlobal>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
@@ -198,8 +199,11 @@ void DocumentView::setSentenceBoundaries(const QVector<Sentence> &sentences)
 void DocumentView::clearHighlight()
 {
     m_hasCurrentHighlight = false;
+    m_hasContextHighlight = false;
     m_highlightStart = -1;
     m_highlightEnd = -1;
+    m_sentenceStart = -1;
+    m_sentenceEnd = -1;
     m_highlightState = HighlightState::Stopped;
     refreshExtraSelections();
 }
@@ -227,10 +231,13 @@ void DocumentView::applyHighlightColors()
 void DocumentView::refreshExtraSelections()
 {
     QList<QTextEdit::ExtraSelection> combined;
-    // Hover first, current on top -- so the active/playing sentence always
-    // wins when the mouse is over it.
+    // Hover under everything; context (full sentence) under the progress
+    // prefix so the spoken/selected portion always wins visually.
     if (m_hasHoverHighlight) {
         combined.append(m_hoverHighlight);
+    }
+    if (m_hasContextHighlight) {
+        combined.append(m_contextHighlight);
     }
     if (m_hasCurrentHighlight) {
         combined.append(m_currentHighlight);
@@ -247,6 +254,9 @@ void DocumentView::highlightRange(int start, int end, HighlightState state)
     m_highlightState = state;
     m_highlightStart = start;
     m_highlightEnd = end;
+    m_sentenceStart = start;
+    m_sentenceEnd = end;
+    m_hasContextHighlight = false;
 
     QTextEdit::ExtraSelection selection;
     QTextCursor cursor(document());
@@ -271,6 +281,59 @@ void DocumentView::highlightRange(int start, int end, HighlightState state)
     // cursor, not just the widget's actual one, so centering doesn't need
     // to touch real cursor/selection state at all.
     centerCursor(cursor);
+}
+
+void DocumentView::highlightSentenceProgress(int sentenceStart, int sentenceEnd, double fraction,
+                                             HighlightState state)
+{
+    const int charCount = document()->characterCount();
+    if (sentenceStart < 0 || sentenceEnd > charCount || sentenceStart >= sentenceEnd) {
+        return;
+    }
+
+    fraction = qBound(0.0, fraction, 1.0);
+    const int span = sentenceEnd - sentenceStart;
+    // At least one character so a 0-fraction seek still shows a caret mark.
+    int progressEnd = sentenceStart + qMax(1, static_cast<int>(fraction * span + 0.5));
+    progressEnd = qBound(sentenceStart + 1, progressEnd, sentenceEnd);
+
+    m_highlightState = state;
+    m_sentenceStart = sentenceStart;
+    m_sentenceEnd = sentenceEnd;
+    m_highlightStart = sentenceStart;
+    m_highlightEnd = progressEnd;
+
+    const Colors defaults = builtinDefaults(isDarkTheme());
+
+    // Full sentence in the muted stopped color as context.
+    {
+        QTextEdit::ExtraSelection context;
+        QTextCursor cursor(document());
+        cursor.setPosition(sentenceStart);
+        cursor.setPosition(sentenceEnd, QTextCursor::KeepAnchor);
+        context.cursor = cursor;
+        const QColor ctxBg = m_colors.stopped.isValid() ? m_colors.stopped : defaults.stopped;
+        context.format.setBackground(ctxBg);
+        context.format.setForeground(contrastingText(ctxBg));
+        m_contextHighlight = context;
+        m_hasContextHighlight = true;
+    }
+
+    // Spoken / selected prefix in the active state color.
+    {
+        QTextEdit::ExtraSelection progress;
+        QTextCursor cursor(document());
+        cursor.setPosition(sentenceStart);
+        cursor.setPosition(progressEnd, QTextCursor::KeepAnchor);
+        progress.cursor = cursor;
+        m_currentHighlight = progress;
+        applyHighlightColors();
+        m_hasCurrentHighlight = true;
+        // Keep the "playhead" near the middle of the viewport.
+        centerCursor(cursor);
+    }
+
+    refreshExtraSelections();
 }
 
 void DocumentView::setHighlightState(HighlightState state)

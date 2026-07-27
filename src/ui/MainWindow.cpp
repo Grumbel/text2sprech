@@ -682,11 +682,9 @@ void MainWindow::setUpUi()
     auto *stopBtn = makeTransportButton(QStyle::SP_MediaStop, tr("Stop"), QSize(28, 28));
     connect(stopBtn, &QToolButton::clicked, this, [this] {
         m_playback->stop();
-        // Keep the current sentence visible in the muted Stopped color
-        // (same as pause / finished) rather than clearing the highlight.
-        m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setPlayingUi(false);
         m_intraSentenceFraction = 0.0; // stop() restarts the sentence from 0 next play
+        applyPositionHighlight(DocumentView::HighlightState::Stopped);
         setActivity(tr("Stopped"), ActivityKind::Idle);
         refreshProgress();
     });
@@ -1082,9 +1080,8 @@ void MainWindow::togglePlayPause()
     if (m_playback->isPlaying()) {
         m_playback->pause();
         setPlayingUi(false);
-        // Keep the current sentence visible, but switch to the muted
-        // "stopped/selected" color so it no longer looks actively speaking.
-        m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
+        // Keep progress highlight, muted stopped color (not actively speaking).
+        applyPositionHighlight(DocumentView::HighlightState::Stopped);
         setActivity(tr("Paused"), ActivityKind::Idle);
         return;
     }
@@ -1118,11 +1115,11 @@ void MainWindow::setPlayingUi(bool playing)
 
 void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
 {
-    m_documentView->highlightRange(start, end, DocumentView::HighlightState::Playing);
+    Q_UNUSED(start);
+    Q_UNUSED(end);
     m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
-    // Keep m_intraSentenceFraction: mid-sentence seeks set it (and the player
-    // position) before sentenceStarted; a normal advance reports 0 via
-    // audioPositionChanged almost immediately.
+    m_intraSentenceFraction = m_playback->currentFraction();
+    applyPositionHighlight(DocumentView::HighlightState::Playing);
     setActivity(tr("Playing"), ActivityKind::Active);
     refreshProgress();
     saveCurrentPosition();
@@ -1132,10 +1129,13 @@ void MainWindow::onAudioPositionChanged(qint64 positionMs, qint64 durationMs)
 {
     if (durationMs > 0) {
         m_intraSentenceFraction = qBound(0.0, double(positionMs) / double(durationMs), 1.0);
-    } else {
-        m_intraSentenceFraction = 0.0;
     }
+    // Keep the last known fraction when duration is briefly 0 (reload), so
+    // the highlight does not jump back to the sentence start.
     if (!m_progressSliderPressed) {
+        if (m_playback->isPlaying()) {
+            applyPositionHighlight(DocumentView::HighlightState::Playing);
+        }
         refreshProgress();
     }
 }
@@ -1143,9 +1143,8 @@ void MainWindow::onAudioPositionChanged(qint64 positionMs, qint64 durationMs)
 void MainWindow::onPreparingAudio(int sentenceId)
 {
     if (sentenceId >= 0 && sentenceId < m_sentences.size()) {
-        const Sentence &s = m_sentences[sentenceId];
-        m_documentView->highlightRange(s.start, s.end, DocumentView::HighlightState::Preparing);
         m_currentSentenceIndex = sentenceId;
+        applyPositionHighlight(DocumentView::HighlightState::Preparing);
         refreshProgress();
     } else {
         m_documentView->setHighlightState(DocumentView::HighlightState::Preparing);
@@ -1158,7 +1157,22 @@ void MainWindow::onDocumentClicked(int plainTextOffset)
     if (m_sentences.isEmpty()) {
         return;
     }
-    jumpToSentence(sentenceIndexForOffset(plainTextOffset));
+    const int index = sentenceIndexForOffset(plainTextOffset);
+    const Sentence &s = m_sentences[index];
+    double fraction = 0.0;
+    if (s.end > s.start) {
+        fraction = qBound(0.0, double(plainTextOffset - s.start) / double(s.end - s.start), 1.0);
+    }
+    jumpToSentence(index, fraction);
+}
+
+void MainWindow::applyPositionHighlight(DocumentView::HighlightState state)
+{
+    if (m_currentSentenceIndex < 0 || m_currentSentenceIndex >= m_sentences.size()) {
+        return;
+    }
+    const Sentence &s = m_sentences[m_currentSentenceIndex];
+    m_documentView->highlightSentenceProgress(s.start, s.end, m_intraSentenceFraction, state);
 }
 
 void MainWindow::jumpToSentence(int index, double fractionWithin)
@@ -1168,7 +1182,6 @@ void MainWindow::jumpToSentence(int index, double fractionWithin)
     }
     index = std::clamp(index, 0, static_cast<int>(m_sentences.size()) - 1);
     fractionWithin = qBound(0.0, fractionWithin, 1.0);
-    const Sentence &sentence = m_sentences[index];
     // Immediate visual feedback regardless of playback state -- if we're
     // paused/stopped, seekToSentence() below won't emit sentenceStarted
     // (that only fires once audio actually starts), so without this a
@@ -1178,9 +1191,9 @@ void MainWindow::jumpToSentence(int index, double fractionWithin)
     const auto state = m_playback->isPlaying()
         ? DocumentView::HighlightState::Preparing
         : DocumentView::HighlightState::Stopped;
-    m_documentView->highlightRange(sentence.start, sentence.end, state);
     m_currentSentenceIndex = index;
     m_intraSentenceFraction = fractionWithin;
+    applyPositionHighlight(state);
     refreshProgress();
     m_playback->seekToSentence(index, fractionWithin);
     if (!m_restoringPosition) {

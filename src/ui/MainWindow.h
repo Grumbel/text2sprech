@@ -95,6 +95,9 @@ private:
     // highlights immediately (regardless of playback state), updates the
     // position label, and tells playback to seek there.
     void jumpToSentence(int index, double fractionWithin = 0.0);
+    // Paints fine-grained progress inside the current sentence from
+    // m_currentSentenceIndex + m_intraSentenceFraction.
+    void applyPositionHighlight(DocumentView::HighlightState state);
     // Applies whichever startup content source was requested (paste
     // selection/clipboard, or an initial file), once the piper-server
     // connection is actually up. Only ever acts once.

@@ -46,9 +46,12 @@ public:
     // audio once it is loaded — 0 starts at the beginning (default).
     void seekToSentence(int sentenceIndex, double fractionWithin = 0.0);
     int currentIndex() const { return m_currentIndex; }
-    // Current media timeline (ms). duration is 0 until the WAV is loaded.
+    // Current media timeline (ms). Prefers the live player clock; falls back
+    // to the WAV-header duration when the backend has not reported one yet.
     qint64 currentPositionMs() const;
     qint64 currentDurationMs() const;
+    // 0..1 through the current sentence (position / duration).
+    double currentFraction() const;
     // Speed is baked into synthesis (Piper length_scale), not playback rate.
     // Cancels in-flight work and drops cached audio so upcoming sentences
     // are re-synthesized at the new speed (same pattern as setVoice).
@@ -95,8 +98,9 @@ private:
     void requestLookahead();
     void playCurrentIfReady();
     void advanceToNext();
-    // Apply m_pendingSeekFraction once duration is known.
-    void applyPendingSeekIfPossible();
+    // Apply m_pendingSeekFraction once a usable duration is known (player or WAV).
+    bool applyPendingSeekIfPossible();
+    qint64 durationForCurrentSentence() const;
 
     PiperClient *m_client; // not owned
     QMediaPlayer m_player;
@@ -109,12 +113,16 @@ private:
 
     // audio for sentences we've already requested but not yet played
     QHash<int, QByteArray> m_audioCache; // key: sentence id (== index into m_sentences for v1)
+    // WAV-header durations (ms), filled when audio is cached — reliable even
+    // before QMediaPlayer reports duration, which is what makes mid-sentence
+    // seeks work with setSourceDevice.
+    QHash<int, qint64> m_audioDurationMs;
     bool m_waitingForAudio = false;
     bool m_playing = false;
     // True after pause() while the current sentence's media is still loaded;
     // play() resumes instead of reloading. Cleared by stop()/seek/new media.
     bool m_paused = false;
-    // 0..1 offset into the next sentence's audio after seekToSentence(..., f).
-    // Applied when duration becomes available; 0 means start of sentence.
-    double m_pendingSeekFraction = 0.0;
+    // Pending 0..1 offset into the current sentence's audio. Applied as soon
+    // as duration is known. Negative means "no pending seek".
+    double m_pendingSeekFraction = -1.0;
 };
