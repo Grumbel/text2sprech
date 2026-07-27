@@ -124,7 +124,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_piperClient, &PiperClient::ready, this, [this](const PiperServerInfo &info) {
         m_connectAttemptsLeft = 0; // successfully connected; stop treating further errors as retryable
         if (info.realAudio) {
-            setActivity(tr("Ready"));
+            setActivity(tr("Ready"), ActivityKind::Ready);
         }
         // Deferred (rather than opened immediately in main()) because the
         // socket connect is asynchronous -- opening it before the event
@@ -143,7 +143,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
             return;
         }
         qWarning().noquote() << "Piper connection error:" << msg;
-        setActivity(tr("Piper connection failed"));
+        setActivity(tr("Piper connection failed"), ActivityKind::Error);
         setPlaybackEnabled(false);
         setAudioWarning(tr("Cannot connect to piper-server: %1").arg(msg));
         statusBar()->showMessage(tr("Piper connection error: %1").arg(msg), 8000);
@@ -153,7 +153,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
             return; // still in the startup retry window
         }
         setPlaybackEnabled(false);
-        setActivity(tr("Disconnected"));
+        setActivity(tr("Disconnected"), ActivityKind::Error);
         setAudioWarning(tr("Lost connection to piper-server."));
     });
     connect(m_playback, &PlaybackController::sentenceStarted, this, &MainWindow::onSentenceStarted);
@@ -162,7 +162,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_playback, &PlaybackController::playbackFinished, this, [this] {
         setPlayingUi(false);
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
-        setActivity(tr("Finished"));
+        setActivity(tr("Finished"), ActivityKind::Ready);
         statusBar()->showMessage(tr("Finished"), 3000);
     });
     connect(m_documentView, &DocumentView::positionClicked, this, &MainWindow::onDocumentClicked);
@@ -172,17 +172,17 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
         // User asked to attach to a server they're managing themselves --
         // we must never spawn or kill a process in this case.
         socketPath = m_options.piperSocket;
-        setActivity(tr("Connecting to piper-server…"));
+        setActivity(tr("Connecting to piper-server…"), ActivityKind::Idle);
         qInfo().noquote() << "Using externally-managed piper-server at" << socketPath;
     } else {
-        setActivity(tr("Starting piper-server…"));
+        setActivity(tr("Starting piper-server…"), ActivityKind::Idle);
         m_piperServerManager = new PiperServerManager(this);
         connect(m_piperServerManager, &PiperServerManager::serverOutput, this, [](const QString &text) {
             qDebug().noquote() << "[piper-server]" << text.trimmed();
         });
         connect(m_piperServerManager, &PiperServerManager::failedToStart, this, [this](const QString &reason) {
             qWarning().noquote() << reason;
-            setActivity(tr("Piper server unavailable"));
+            setActivity(tr("Piper server unavailable"), ActivityKind::Error);
             setPlaybackEnabled(false);
             setAudioWarning(reason);
             statusBar()->showMessage(reason, 8000);
@@ -470,22 +470,35 @@ void MainWindow::setUpUi()
         pasteFromSource(mode);
     });
 
-    // --- Bottom player bar: progress strip + transport ---
+    // --- Bottom player bar -------------------------------------------------
+    // Layout matches the reference chrome:
+    //   [elapsed] ———— progress slider ———— [−remaining] [N / M]
+    //              Previous   Play   Stop   Next   (icons + labels)
+    // Status bar (below): ● Ready
     auto *playerBar = new QWidget(central);
     playerBar->setObjectName(QStringLiteral("playerBar"));
     auto *playerColumn = new QVBoxLayout(playerBar);
-    playerColumn->setContentsMargins(10, 6, 10, 6);
-    playerColumn->setSpacing(2);
+    playerColumn->setContentsMargins(12, 8, 12, 4);
+    playerColumn->setSpacing(4);
 
-    // Seekable progress track (word-based position through the document).
-    m_progressSlider = new QSlider(Qt::Horizontal, playerBar);
+    // Progress row: times + seek track + sentence counter on one line.
+    auto *progressRow = new QWidget(playerBar);
+    auto *progressLayout = new QHBoxLayout(progressRow);
+    progressLayout->setContentsMargins(0, 0, 0, 0);
+    progressLayout->setSpacing(10);
+
+    m_elapsedLabel = new QLabel(QStringLiteral("0:00"), progressRow);
+    m_elapsedLabel->setMinimumWidth(40);
+    m_elapsedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_elapsedLabel->setToolTip(tr("Estimated time listened (at current speed)"));
+
+    m_progressSlider = new QSlider(Qt::Horizontal, progressRow);
     m_progressSlider->setRange(0, 0);
     m_progressSlider->setValue(0);
     m_progressSlider->setEnabled(false);
     m_progressSlider->setFocusPolicy(Qt::NoFocus);
     m_progressSlider->setTracking(true);
     m_progressSlider->setToolTip(tr("Jump to a position in the document"));
-    // Compact track; thumb stays usable.
     m_progressSlider->setMinimumHeight(18);
     m_progressSlider->setMaximumHeight(22);
     connect(m_progressSlider, &QSlider::sliderPressed, this, [this] {
@@ -495,8 +508,6 @@ void MainWindow::setUpUi()
         m_progressSliderPressed = false;
         onProgressSliderCommitted(m_progressSlider->value());
     });
-    // Click-to-seek without a drag: value changes while not pressed means
-    // the style jumped the thumb; commit immediately.
     connect(m_progressSlider, &QSlider::sliderMoved, this, [this](int value) {
         // Live-update the time labels while dragging without seeking audio
         // on every tick (that would thrash synthesis).
@@ -510,11 +521,8 @@ void MainWindow::setUpUi()
             m_sentenceLabel->setText(tr("%1 / %2").arg(idx + 1).arg(m_sentences.size()));
         }
     });
-    // Page-step / single-step clicks on the groove (no press/release pair
-    // on some styles) still commit via actionTriggered.
     connect(m_progressSlider, &QSlider::actionTriggered, this, [this](int /*action*/) {
         if (!m_progressSliderPressed) {
-            // Defer until the slider has applied the new value.
             QTimer::singleShot(0, this, [this] {
                 if (!m_progressSliderPressed) {
                     onProgressSliderCommitted(m_progressSlider->value());
@@ -522,49 +530,49 @@ void MainWindow::setUpUi()
             });
         }
     });
-    playerColumn->addWidget(m_progressSlider);
 
-    // Time / transport / sentence row.
-    auto *controlsRow = new QWidget(playerBar);
-    auto *controlsLayout = new QHBoxLayout(controlsRow);
-    controlsLayout->setContentsMargins(0, 0, 0, 0);
-    controlsLayout->setSpacing(8);
-
-    m_elapsedLabel = new QLabel(QStringLiteral("0:00"), controlsRow);
-    m_elapsedLabel->setMinimumWidth(48);
-    m_elapsedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_elapsedLabel->setToolTip(tr("Estimated time listened (at current speed)"));
-
-    m_remainingLabel = new QLabel(QStringLiteral("−0:00"), controlsRow);
-    m_remainingLabel->setMinimumWidth(56);
+    m_remainingLabel = new QLabel(QStringLiteral("−0:00"), progressRow);
+    m_remainingLabel->setMinimumWidth(48);
     m_remainingLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_remainingLabel->setToolTip(tr("Estimated time remaining (at current speed)"));
 
-    m_sentenceLabel = new QLabel(controlsRow);
-    m_sentenceLabel->setMinimumWidth(72);
+    m_sentenceLabel = new QLabel(progressRow);
+    m_sentenceLabel->setMinimumWidth(56);
     m_sentenceLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_sentenceLabel->setToolTip(tr("Current sentence / total"));
 
-    // Slightly muted secondary text so transport icons stay primary.
     QFont metaFont = m_elapsedLabel->font();
     metaFont.setPointSizeF(metaFont.pointSizeF() * 0.95);
     m_elapsedLabel->setFont(metaFont);
     m_remainingLabel->setFont(metaFont);
     m_sentenceLabel->setFont(metaFont);
 
-    const QSize iconSize(28, 28);
-    auto makeTransportButton = [this, controlsRow, iconSize](QStyle::StandardPixmap sp, const QString &tip) {
-        auto *btn = new QToolButton(controlsRow);
+    progressLayout->addWidget(m_elapsedLabel, 0, Qt::AlignVCenter);
+    progressLayout->addWidget(m_progressSlider, /*stretch=*/1);
+    progressLayout->addWidget(m_remainingLabel, 0, Qt::AlignVCenter);
+    progressLayout->addWidget(m_sentenceLabel, 0, Qt::AlignVCenter);
+    playerColumn->addWidget(progressRow);
+
+    // Transport row: icon-only Previous / Play / Stop / Next, truly centered.
+    auto *transportRow = new QWidget(playerBar);
+    auto *transportOuter = new QHBoxLayout(transportRow);
+    transportOuter->setContentsMargins(0, 4, 0, 2);
+    transportOuter->setSpacing(0);
+
+    auto makeTransportButton = [this, transportRow](QStyle::StandardPixmap sp, const QString &tip,
+                                                    const QSize &iconSize) {
+        auto *btn = new QToolButton(transportRow);
         btn->setIcon(style()->standardIcon(sp));
         btn->setIconSize(iconSize);
         btn->setToolTip(tip);
-        btn->setAutoRaise(true);
         btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        btn->setAutoRaise(true);
         btn->setFocusPolicy(Qt::NoFocus);
         return btn;
     };
 
-    auto *prevBtn = makeTransportButton(QStyle::SP_MediaSkipBackward, tr("Previous sentence (Left)"));
+    auto *prevBtn = makeTransportButton(QStyle::SP_MediaSkipBackward,
+                                        tr("Previous sentence (Left)"), QSize(28, 28));
     connect(prevBtn, &QToolButton::clicked, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
     });
@@ -572,32 +580,34 @@ void MainWindow::setUpUi()
     m_playPauseAction = new QAction(style()->standardIcon(QStyle::SP_MediaPlay), tr("Play"), this);
     m_playPauseAction->setToolTip(tr("Play (Space)"));
     connect(m_playPauseAction, &QAction::triggered, this, &MainWindow::togglePlayPause);
-    auto *playPauseBtn = new QToolButton(controlsRow);
+    auto *playPauseBtn = new QToolButton(transportRow);
     playPauseBtn->setDefaultAction(m_playPauseAction);
     playPauseBtn->setIconSize(QSize(36, 36));
-    playPauseBtn->setAutoRaise(true);
     playPauseBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    playPauseBtn->setAutoRaise(true);
     playPauseBtn->setFocusPolicy(Qt::NoFocus);
 
-    auto *stopBtn = makeTransportButton(QStyle::SP_MediaStop, tr("Stop"));
+    auto *stopBtn = makeTransportButton(QStyle::SP_MediaStop, tr("Stop"), QSize(28, 28));
     connect(stopBtn, &QToolButton::clicked, this, [this] {
         m_playback->stop();
         // Keep the current sentence visible in the muted Stopped color
         // (same as pause / finished) rather than clearing the highlight.
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
         setPlayingUi(false);
-        setActivity(tr("Stopped"));
+        setActivity(tr("Stopped"), ActivityKind::Idle);
     });
 
-    auto *nextBtn = makeTransportButton(QStyle::SP_MediaSkipForward, tr("Next sentence (Right)"));
+    auto *nextBtn = makeTransportButton(QStyle::SP_MediaSkipForward,
+                                        tr("Next sentence (Right)"), QSize(28, 28));
     connect(nextBtn, &QToolButton::clicked, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex + 1);
     });
 
-    // Volume: mute toggle + horizontal slider (0–100%), same row as transport.
-    m_muteButton = new QToolButton(controlsRow);
+    // Volume cluster stays available but sits off to the right so the
+    // transport block remains visually centered like the reference UI.
+    m_muteButton = new QToolButton(transportRow);
     m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
-    m_muteButton->setIconSize(QSize(22, 22));
+    m_muteButton->setIconSize(QSize(20, 20));
     m_muteButton->setAutoRaise(true);
     m_muteButton->setFocusPolicy(Qt::NoFocus);
     m_muteButton->setCheckable(true);
@@ -613,20 +623,18 @@ void MainWindow::setUpUi()
         }
     });
 
-    m_volumeSlider = new QSlider(Qt::Horizontal, controlsRow);
+    m_volumeSlider = new QSlider(Qt::Horizontal, transportRow);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(100);
-    m_volumeSlider->setMaximumWidth(120);
-    m_volumeSlider->setMinimumWidth(72);
-    m_volumeSlider->setFixedHeight(22);
+    m_volumeSlider->setMaximumWidth(100);
+    m_volumeSlider->setMinimumWidth(64);
+    m_volumeSlider->setFixedHeight(20);
     m_volumeSlider->setFocusPolicy(Qt::NoFocus);
     m_volumeSlider->setToolTip(tr("Volume: 100%"));
     m_volumeSlider->setAccessibleName(tr("Volume"));
     connect(m_volumeSlider, &QSlider::valueChanged, this, [this](int value) {
         m_playback->setVolume(value / 100.0f);
         m_volumeSlider->setToolTip(tr("Volume: %1%").arg(value));
-        // Dragging to 0 acts like mute for the speaker icon; dragging up
-        // clears mute so the new level is audible immediately.
         if (value == 0) {
             if (m_muteButton && !m_muteButton->isChecked()) {
                 m_muteButton->blockSignals(true);
@@ -647,49 +655,53 @@ void MainWindow::setUpUi()
     });
     m_playback->setVolume(1.0f);
 
-    // Three equal columns so transport stays visually centered: left and
-    // right share the same stretch, and side content is packed to the outer
-    // edges. Putting volume in the same HBox as elapsed/remaining made the
-    // right cluster much wider than the left and shoved Play/Stop off-center.
-    auto *leftSide = new QWidget(controlsRow);
-    auto *leftLayout = new QHBoxLayout(leftSide);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(8);
-    leftLayout->addWidget(m_elapsedLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    leftLayout->addStretch(1);
-
-    auto *transport = new QWidget(controlsRow);
+    auto *transport = new QWidget(transportRow);
     auto *transportLayout = new QHBoxLayout(transport);
     transportLayout->setContentsMargins(0, 0, 0, 0);
-    transportLayout->setSpacing(8);
+    transportLayout->setSpacing(12);
     transportLayout->addWidget(prevBtn);
     transportLayout->addWidget(playPauseBtn);
     transportLayout->addWidget(stopBtn);
     transportLayout->addWidget(nextBtn);
 
-    auto *rightSide = new QWidget(controlsRow);
+    // Symmetric side panels: empty left vs volume on the right. Equal stretch
+    // factors keep the transport group on the true horizontal center.
+    auto *leftSide = new QWidget(transportRow);
+    leftSide->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+    auto *rightSide = new QWidget(transportRow);
+    rightSide->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *rightLayout = new QHBoxLayout(rightSide);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(8);
+    rightLayout->setSpacing(6);
     rightLayout->addStretch(1);
-    rightLayout->addWidget(m_remainingLabel, 0, Qt::AlignVCenter);
-    rightLayout->addWidget(m_sentenceLabel, 0, Qt::AlignVCenter);
-    rightLayout->addSpacing(4);
     rightLayout->addWidget(m_muteButton, 0, Qt::AlignVCenter);
     rightLayout->addWidget(m_volumeSlider, 0, Qt::AlignVCenter);
 
-    controlsLayout->addWidget(leftSide, /*stretch=*/1);
-    controlsLayout->addWidget(transport, /*stretch=*/0, Qt::AlignCenter);
-    controlsLayout->addWidget(rightSide, /*stretch=*/1);
+    transportOuter->addWidget(leftSide, /*stretch=*/1);
+    transportOuter->addWidget(transport, /*stretch=*/0, Qt::AlignCenter);
+    transportOuter->addWidget(rightSide, /*stretch=*/1);
 
-    playerColumn->addWidget(controlsRow);
+    playerColumn->addWidget(transportRow);
     centralLayout->addWidget(playerBar);
     setCentralWidget(central);
 
-    // Left/normal area: current activity ("Preparing audio…", "Playing",
-    // etc.) -- temporarily hidden by statusBar()->showMessage() popups.
-    m_activityLabel = new QLabel(this);
-    statusBar()->addWidget(m_activityLabel);
+    // Status bar: green (or state-colored) dot + activity text, matching the
+    // reference "● Ready" presentation. Transient statusBar()->showMessage()
+    // popups still temporarily cover this normal area.
+    auto *statusWidget = new QWidget(this);
+    auto *statusLayout = new QHBoxLayout(statusWidget);
+    statusLayout->setContentsMargins(4, 0, 0, 0);
+    statusLayout->setSpacing(8);
+    m_statusDot = new QLabel(statusWidget);
+    m_statusDot->setFixedSize(10, 10);
+    m_statusDot->setAlignment(Qt::AlignCenter);
+    m_activityLabel = new QLabel(statusWidget);
+    statusLayout->addWidget(m_statusDot, 0, Qt::AlignVCenter);
+    statusLayout->addWidget(m_activityLabel, 0, Qt::AlignVCenter);
+    statusLayout->addStretch(1);
+    statusBar()->addWidget(statusWidget, /*stretch=*/1);
+    setActivity(tr("Starting…"), ActivityKind::Idle);
 
     // Visible immediately while the piper-server connects; replaced if
     // startup paste/file loads, otherwise stays until the user opens/pastes.
@@ -978,7 +990,7 @@ void MainWindow::togglePlayPause()
         // Keep the current sentence visible, but switch to the muted
         // "stopped/selected" color so it no longer looks actively speaking.
         m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
-        setActivity(tr("Paused"));
+        setActivity(tr("Paused"), ActivityKind::Idle);
         return;
     }
     if (!m_realAudioAvailable) {
@@ -1013,7 +1025,7 @@ void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
 {
     m_documentView->highlightRange(start, end, DocumentView::HighlightState::Playing);
     m_currentSentenceIndex = sentenceId; // ids are assigned sequentially == index into m_sentences
-    setActivity(tr("Playing"));
+    setActivity(tr("Playing"), ActivityKind::Active);
     refreshProgress();
     saveCurrentPosition();
 }
@@ -1028,7 +1040,7 @@ void MainWindow::onPreparingAudio(int sentenceId)
     } else {
         m_documentView->setHighlightState(DocumentView::HighlightState::Preparing);
     }
-    setActivity(tr("Preparing audio…"));
+    setActivity(tr("Preparing audio…"), ActivityKind::Active);
 }
 
 void MainWindow::onDocumentClicked(int plainTextOffset)
@@ -1105,7 +1117,7 @@ void MainWindow::onServerReady(const PiperServerInfo &info)
                   info.backend.isEmpty() ? tr("unknown") : info.backend);
         setAudioWarning(warning);
         setPlaybackEnabled(false);
-        setActivity(tr("No audio"));
+        setActivity(tr("No audio"), ActivityKind::Warning);
         qWarning().noquote() << warning;
         statusBar()->showMessage(warning, 10000);
         return;
@@ -1127,7 +1139,7 @@ void MainWindow::onSpeedChanged(double speed)
 void MainWindow::onPlaybackError(const QString &message)
 {
     qWarning().noquote() << message;
-    setActivity(tr("Synthesis error"));
+    setActivity(tr("Synthesis error"), ActivityKind::Error);
     statusBar()->showMessage(message, 8000);
 }
 
@@ -1374,9 +1386,37 @@ void MainWindow::openPreferences()
         tr("Preferences saved (voice directories apply on next start)"), 4000);
 }
 
-void MainWindow::setActivity(const QString &text)
+void MainWindow::setActivity(const QString &text, ActivityKind kind)
 {
-    m_activityLabel->setText(text);
+    if (m_activityLabel) {
+        m_activityLabel->setText(text);
+    }
+    if (!m_statusDot) {
+        return;
+    }
+    // Solid circle via a small styled label — matches the reference "● Ready".
+    QString color;
+    switch (kind) {
+    case ActivityKind::Ready:
+        color = QStringLiteral("#2e9b45"); // green
+        break;
+    case ActivityKind::Active:
+        color = QStringLiteral("#2e7d32"); // deeper green while playing/working
+        break;
+    case ActivityKind::Warning:
+        color = QStringLiteral("#c48a00"); // amber
+        break;
+    case ActivityKind::Error:
+        color = QStringLiteral("#c62828"); // red
+        break;
+    case ActivityKind::Idle:
+    default:
+        color = QStringLiteral("#9aa0a6"); // muted gray
+        break;
+    }
+    m_statusDot->setStyleSheet(
+        QStringLiteral("QLabel { background-color: %1; border-radius: 5px; }").arg(color));
+    m_statusDot->setToolTip(text);
 }
 
 void MainWindow::refreshProgress()

@@ -104,7 +104,16 @@ private:
     // Persistent "what's happening right now" indicator (left side of the
     // status bar) -- distinct from the transient statusBar()->showMessage()
     // notifications, which briefly cover it and then reveal it again.
-    void setActivity(const QString &text);
+    // A colored status dot sits beside the text (green = ready/playing,
+    // amber = working, gray = idle, red = error).
+    enum class ActivityKind {
+        Ready,    // connected / idle and usable
+        Active,   // playing or preparing audio
+        Idle,     // paused / stopped / finished / connecting
+        Warning,  // no audio / degraded
+        Error,    // connection or synthesis failure
+    };
+    void setActivity(const QString &text, ActivityKind kind = ActivityKind::Idle);
     // Updates the player-bar progress strip: seek slider, elapsed/remaining
     // time estimates, and sentence counter. Recomputed when the document,
     // current sentence, or speed changes.
@@ -166,7 +175,8 @@ private:
     QWidget *m_findBar = nullptr;
     QLineEdit *m_findEdit = nullptr;
     QLabel *m_findStatusLabel = nullptr;
-    QLabel *m_activityLabel;     // left/normal status bar area: current activity
+    QLabel *m_statusDot = nullptr; // colored circle in the status bar
+    QLabel *m_activityLabel = nullptr; // status-bar activity text beside the dot
     QSlider *m_progressSlider;   // word-based position through the document
     QLabel *m_elapsedLabel;      // estimated listening time so far
     QLabel *m_remainingLabel;    // estimated listening time left (−m:ss)
