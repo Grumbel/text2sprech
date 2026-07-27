@@ -36,7 +36,9 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QStyle>
+#include <QStyleOptionSlider>
 #include <QSlider>
+#include <QMouseEvent>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -57,6 +59,56 @@ int countWords(const QString &text)
     static const QRegularExpression whitespace(QStringLiteral("\\s+"));
     return text.split(whitespace, Qt::SkipEmptyParts).size();
 }
+
+// QSlider's default groove click does a page-step on many styles (especially
+// under Linux), which feels broken for a media seek bar. Jump absolute to
+// the click position, then fall through to the base class so a subsequent
+// drag still works.
+class ClickJumpSlider : public QSlider {
+public:
+    explicit ClickJumpSlider(Qt::Orientation orientation, QWidget *parent = nullptr)
+        : QSlider(orientation, parent)
+    {
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && maximum() > minimum()) {
+            setValue(valueFromPos(event->pos()));
+        }
+        QSlider::mousePressEvent(event);
+    }
+
+private:
+    int valueFromPos(const QPoint &pos) const
+    {
+        QStyleOptionSlider opt;
+        initStyleOption(&opt);
+        const QRect groove = style()->subControlRect(QStyle::CC_Slider, &opt,
+                                                     QStyle::SC_SliderGroove, this);
+        const QRect handle = style()->subControlRect(QStyle::CC_Slider, &opt,
+                                                     QStyle::SC_SliderHandle, this);
+
+        int sliderMin = 0;
+        int sliderMax = 0;
+        int span = 0;
+        if (orientation() == Qt::Horizontal) {
+            sliderMin = groove.x();
+            sliderMax = groove.right() - handle.width() + 1;
+            span = sliderMax - sliderMin;
+            const int x = pos.x() - handle.width() / 2;
+            return QStyle::sliderValueFromPosition(minimum(), maximum(), x - sliderMin, span,
+                                                   opt.upsideDown);
+        }
+        sliderMin = groove.y();
+        sliderMax = groove.bottom() - handle.height() + 1;
+        span = sliderMax - sliderMin;
+        const int y = pos.y() - handle.height() / 2;
+        return QStyle::sliderValueFromPosition(minimum(), maximum(), y - sliderMin, span,
+                                               opt.upsideDown);
+    }
+};
 
 // Typical spoken-word rate at 1.0x speed -- Piper's actual rate varies by voice.
 constexpr double kWordsPerMinuteBase = 150.0;
@@ -492,17 +544,29 @@ void MainWindow::setUpUi()
     m_elapsedLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_elapsedLabel->setToolTip(tr("Estimated time listened (at current speed)"));
 
-    m_progressSlider = new QSlider(Qt::Horizontal, progressRow);
+    m_progressSlider = new ClickJumpSlider(Qt::Horizontal, progressRow);
     m_progressSlider->setRange(0, 0);
     m_progressSlider->setValue(0);
     m_progressSlider->setEnabled(false);
     m_progressSlider->setFocusPolicy(Qt::NoFocus);
     m_progressSlider->setTracking(true);
+    m_progressSlider->setPageStep(1); // page keys still move a little if focused
     m_progressSlider->setToolTip(tr("Jump to a position in the document"));
     m_progressSlider->setMinimumHeight(18);
     m_progressSlider->setMaximumHeight(22);
     connect(m_progressSlider, &QSlider::sliderPressed, this, [this] {
         m_progressSliderPressed = true;
+        // Groove clicks jump via ClickJumpSlider before press; refresh labels
+        // immediately so the thumb and times match the click.
+        const int value = m_progressSlider->value();
+        if (!m_sentences.isEmpty() && m_totalWords > 0) {
+            const double speed = m_speedSpin->value();
+            m_elapsedLabel->setText(formatDuration(wordsToSeconds(value, speed)));
+            m_remainingLabel->setText(
+                QStringLiteral("−%1").arg(formatDuration(wordsToSeconds(m_totalWords - value, speed))));
+            m_sentenceLabel->setText(
+                tr("%1 / %2").arg(sentenceIndexForWordOffset(value) + 1).arg(m_sentences.size()));
+        }
     });
     connect(m_progressSlider, &QSlider::sliderReleased, this, [this] {
         m_progressSliderPressed = false;
@@ -521,6 +585,7 @@ void MainWindow::setUpUi()
             m_sentenceLabel->setText(tr("%1 / %2").arg(idx + 1).arg(m_sentences.size()));
         }
     });
+    // Keyboard / style-driven moves (not a drag) still seek on commit.
     connect(m_progressSlider, &QSlider::actionTriggered, this, [this](int /*action*/) {
         if (!m_progressSliderPressed) {
             QTimer::singleShot(0, this, [this] {
