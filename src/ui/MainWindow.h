@@ -123,6 +123,10 @@ private:
     void refreshProgress();
     // Maps a progress-unit offset to the sentence that contains it.
     int sentenceIndexForProgressUnit(int unit) const;
+    // Resolve a seek-bar unit to (sentence index, 0..1 fraction within it).
+    void progressUnitToPosition(int unit, int *sentenceIndex, double *fraction) const;
+    // Preview position from the seek bar (labels + fine highlight) without seeking audio.
+    void previewProgressUnit(int unit);
     // User interacted with the progress slider (click or release after drag).
     void onProgressSliderCommitted(int progressUnit);
     // Live QMediaPlayer position → intra-sentence fraction for the seek bar.
@@ -187,7 +191,6 @@ private:
     QSlider *m_progressSlider;   // word-based position through the document
     QLabel *m_elapsedLabel;      // estimated listening time so far
     QLabel *m_remainingLabel;    // estimated listening time left (−m:ss)
-    QLabel *m_sentenceLabel;     // "sentence N / M"
     QSlider *m_volumeSlider = nullptr; // 0–100 → QAudioOutput linear gain
     QToolButton *m_muteButton = nullptr;
     bool m_realAudioAvailable = false;

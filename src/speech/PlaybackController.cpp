@@ -224,17 +224,30 @@ void PlaybackController::seekToSentence(int index, double fractionWithin)
 
     fractionWithin = qBound(0.0, fractionWithin, 1.0);
     const bool sameSentence = (index == m_currentIndex);
-    const bool mediaLoaded = m_currentAudioBuffer != nullptr
-        && m_player.playbackState() != QMediaPlayer::StoppedState;
+    const int sentenceId = m_sentences[index].id;
+    const bool audioCached = m_audioCache.contains(sentenceId);
 
-    // Fast path: scrubbing inside the sentence that is already loaded —
-    // just move the playhead, no reload / resynthesis.
-    if (sameSentence && mediaLoaded) {
+    // Fast path: same sentence with WAV already on hand — move the playhead
+    // (reloading the buffer if the player was stopped) without resynthesis.
+    if (sameSentence && audioCached) {
         m_pendingSeekFraction = fractionWithin;
-        if (!applyPendingSeekIfPossible()) {
-            // Duration not ready yet; keep pending for durationChanged.
+        m_currentIndex = index;
+        if (!m_currentAudioBuffer) {
+            // Player was stopped/cleared but cache still has the WAV.
+            m_currentAudioBuffer = std::make_unique<QBuffer>();
+            m_currentAudioBuffer->setData(m_audioCache.value(sentenceId));
+            m_currentAudioBuffer->open(QIODevice::ReadOnly);
+            m_player.setSourceDevice(m_currentAudioBuffer.get(), QUrl("wav-audio://sentence"));
+            if (m_playing) {
+                m_player.play();
+            }
         }
-        emit audioPositionChanged(m_player.position(), durationForCurrentSentence());
+        applyPendingSeekIfPossible();
+        const qint64 duration = durationForCurrentSentence();
+        const qint64 position = duration > 0
+            ? qint64(fractionWithin * double(duration) + 0.5)
+            : m_player.position();
+        emit audioPositionChanged(position, duration);
         return;
     }
 
@@ -357,16 +370,29 @@ bool PlaybackController::applyPendingSeekIfPossible()
 
 void PlaybackController::advanceToNext()
 {
-    m_audioCache.remove(m_sentences[m_currentIndex].id);
-    m_audioDurationMs.remove(m_sentences[m_currentIndex].id);
+    const int finishedIndex = m_currentIndex;
+    // Capture duration before dropping the cache entry — needed to report
+    // EOF as the end of the last segment, not position 0.
+    const qint64 finishedDuration = qMax(m_player.duration(),
+        m_audioDurationMs.value(m_sentences[finishedIndex].id, qint64(0)));
+
+    m_audioCache.remove(m_sentences[finishedIndex].id);
+    m_audioDurationMs.remove(m_sentences[finishedIndex].id);
     m_pendingSeekFraction = -1.0;
     ++m_currentIndex;
     m_paused = false;
     if (m_currentIndex >= m_sentences.size()) {
         m_playing = false;
+        // Stay parked on the last sentence at the end so the seek bar and
+        // highlight remain at EOF, not the start of the last segment
+        // (player.stop() would otherwise report position 0).
+        m_currentIndex = m_sentences.size() - 1;
         m_player.stop();
         m_player.setSource(QUrl());
         m_currentAudioBuffer.reset();
+        if (finishedDuration > 0) {
+            emit audioPositionChanged(finishedDuration, finishedDuration);
+        }
         emit playbackFinished();
         return;
     }

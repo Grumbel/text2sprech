@@ -237,8 +237,14 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     connect(m_playback, &PlaybackController::audioPositionChanged, this, &MainWindow::onAudioPositionChanged);
     connect(m_playback, &PlaybackController::playbackFinished, this, [this] {
         setPlayingUi(false);
-        m_documentView->setHighlightState(DocumentView::HighlightState::Stopped);
-        m_intraSentenceFraction = 0.0;
+        // Pin UI at the end of the document (last sentence, fraction 1.0).
+        // Resetting fraction to 0 made the seek bar jump back to the start of
+        // the last segment when playback completed.
+        if (!m_sentences.isEmpty()) {
+            m_currentSentenceIndex = m_sentences.size() - 1;
+            m_intraSentenceFraction = 1.0;
+            applyPositionHighlight(DocumentView::HighlightState::Stopped);
+        }
         setActivity(tr("Finished"), ActivityKind::Ready);
         statusBar()->showMessage(tr("Finished"), 3000);
         refreshProgress();
@@ -582,35 +588,18 @@ void MainWindow::setUpUi()
     m_progressSlider->setMaximumHeight(22);
     connect(m_progressSlider, &QSlider::sliderPressed, this, [this] {
         m_progressSliderPressed = true;
-        // Groove clicks jump via ClickJumpSlider before press; refresh labels
-        // immediately so the thumb and times match the click.
-        const int value = m_progressSlider->value();
-        if (!m_sentences.isEmpty() && m_totalWords > 0) {
-            const double speed = m_speedSpin->value();
-            const double words = double(value) / double(kProgressUnitsPerWord);
-            m_elapsedLabel->setText(formatDuration(wordsToSeconds(words, speed)));
-            m_remainingLabel->setText(QStringLiteral("−%1").arg(
-                formatDuration(wordsToSeconds(double(m_totalWords) - words, speed))));
-            m_sentenceLabel->setText(
-                tr("%1 / %2").arg(sentenceIndexForProgressUnit(value) + 1).arg(m_sentences.size()));
-        }
+        // Groove clicks jump via ClickJumpSlider before press; mirror that
+        // position in the time labels and fine-grained text highlight.
+        previewProgressUnit(m_progressSlider->value());
     });
     connect(m_progressSlider, &QSlider::sliderReleased, this, [this] {
         m_progressSliderPressed = false;
         onProgressSliderCommitted(m_progressSlider->value());
     });
     connect(m_progressSlider, &QSlider::sliderMoved, this, [this](int value) {
-        // Live-update the time labels while dragging without seeking audio
-        // on every tick (that would thrash synthesis).
-        if (!m_sentences.isEmpty() && m_totalWords > 0) {
-            const double speed = m_speedSpin->value();
-            const double words = double(value) / double(kProgressUnitsPerWord);
-            m_elapsedLabel->setText(formatDuration(wordsToSeconds(words, speed)));
-            m_remainingLabel->setText(QStringLiteral("−%1").arg(
-                formatDuration(wordsToSeconds(double(m_totalWords) - words, speed))));
-            const int idx = sentenceIndexForProgressUnit(value);
-            m_sentenceLabel->setText(tr("%1 / %2").arg(idx + 1).arg(m_sentences.size()));
-        }
+        // Live preview while dragging: time labels + in-sentence highlight.
+        // Audio seeks only on release so we do not thrash synthesis.
+        previewProgressUnit(value);
     });
     // Keyboard / style-driven moves (not a drag) still seek on commit.
     connect(m_progressSlider, &QSlider::actionTriggered, this, [this](int /*action*/) {
@@ -628,21 +617,15 @@ void MainWindow::setUpUi()
     m_remainingLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_remainingLabel->setToolTip(tr("Estimated time remaining (at current speed)"));
 
-    m_sentenceLabel = new QLabel(progressRow);
-    m_sentenceLabel->setMinimumWidth(56);
-    m_sentenceLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_sentenceLabel->setToolTip(tr("Current sentence / total"));
 
     QFont metaFont = m_elapsedLabel->font();
     metaFont.setPointSizeF(metaFont.pointSizeF() * 0.95);
     m_elapsedLabel->setFont(metaFont);
     m_remainingLabel->setFont(metaFont);
-    m_sentenceLabel->setFont(metaFont);
 
     progressLayout->addWidget(m_elapsedLabel, 0, Qt::AlignVCenter);
     progressLayout->addWidget(m_progressSlider, /*stretch=*/1);
     progressLayout->addWidget(m_remainingLabel, 0, Qt::AlignVCenter);
-    progressLayout->addWidget(m_sentenceLabel, 0, Qt::AlignVCenter);
     playerColumn->addWidget(progressRow);
 
     // Transport row: icon-only Previous / Play / Stop / Next, truly centered.
@@ -1127,17 +1110,29 @@ void MainWindow::onSentenceStarted(int sentenceId, int start, int end)
 
 void MainWindow::onAudioPositionChanged(qint64 positionMs, qint64 durationMs)
 {
+    // While the user is dragging the seek bar, previewProgressUnit owns the
+    // highlight and fraction; ignore the player clock.
+    if (m_progressSliderPressed) {
+        return;
+    }
+
     if (durationMs > 0) {
-        m_intraSentenceFraction = qBound(0.0, double(positionMs) / double(durationMs), 1.0);
-    }
-    // Keep the last known fraction when duration is briefly 0 (reload), so
-    // the highlight does not jump back to the sentence start.
-    if (!m_progressSliderPressed) {
-        if (m_playback->isPlaying()) {
-            applyPositionHighlight(DocumentView::HighlightState::Playing);
+        const double fraction = qBound(0.0, double(positionMs) / double(durationMs), 1.0);
+        // After stop/finish the player often reports position 0; do not let
+        // that pull a completed or mid-segment parked position back to start.
+        if (!m_playback->isPlaying() && positionMs == 0 && m_intraSentenceFraction > 0.01) {
+            return;
         }
-        refreshProgress();
+        m_intraSentenceFraction = fraction;
     }
+
+    if (m_currentSentenceIndex >= 0) {
+        const auto state = m_playback->isPlaying()
+            ? DocumentView::HighlightState::Playing
+            : DocumentView::HighlightState::Stopped;
+        applyPositionHighlight(state);
+    }
+    refreshProgress();
 }
 
 void MainWindow::onPreparingAudio(int sentenceId)
@@ -1554,7 +1549,6 @@ void MainWindow::refreshProgress()
         m_progressSlider->blockSignals(false);
         m_elapsedLabel->setText(QStringLiteral("0:00"));
         m_remainingLabel->setText(QStringLiteral("−0:00"));
-        m_sentenceLabel->setText(m_showingWelcome ? tr("Welcome") : tr("—"));
         m_progressSlider->setToolTip(tr("No document loaded"));
         return;
     }
@@ -1564,13 +1558,13 @@ void MainWindow::refreshProgress()
     const int maxUnits = qMax(1, m_totalWords * kProgressUnitsPerWord);
 
     double wordsSoFar = 0.0;
-    int displayIndex = 0; // 1-based when positioned; 0 means "not started"
     if (m_currentSentenceIndex >= 0
         && m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
         wordsSoFar = double(m_cumulativeWordsBeforeSentence[m_currentSentenceIndex]);
         const int wordsInSentence = countWords(m_sentences[m_currentSentenceIndex].text);
+        // Intra-sentence fraction maps onto estimated speaking time for this
+        // segment (word count × rate), so the thumb moves smoothly in time.
         wordsSoFar += m_intraSentenceFraction * double(qMax(1, wordsInSentence));
-        displayIndex = m_currentSentenceIndex + 1;
     }
 
     const int elapsedSec = wordsToSeconds(wordsSoFar, speed);
@@ -1589,11 +1583,6 @@ void MainWindow::refreshProgress()
 
     m_elapsedLabel->setText(formatDuration(elapsedSec));
     m_remainingLabel->setText(QStringLiteral("−%1").arg(formatDuration(remainingSec)));
-    if (displayIndex > 0) {
-        m_sentenceLabel->setText(tr("%1 / %2").arg(displayIndex).arg(m_sentences.size()));
-    } else {
-        m_sentenceLabel->setText(tr("— / %1").arg(m_sentences.size()));
-    }
 
     const int percent = m_totalWords > 0
         ? static_cast<int>(100.0 * wordsSoFar / double(m_totalWords) + 0.5)
@@ -1618,16 +1607,57 @@ int MainWindow::sentenceIndexForProgressUnit(int unit) const
     return qBound(0, index, static_cast<int>(m_sentences.size()) - 1);
 }
 
+void MainWindow::progressUnitToPosition(int unit, int *sentenceIndex, double *fraction) const
+{
+    if (!sentenceIndex || !fraction) {
+        return;
+    }
+    if (m_sentences.isEmpty()) {
+        *sentenceIndex = 0;
+        *fraction = 0.0;
+        return;
+    }
+    const int index = sentenceIndexForProgressUnit(unit);
+    const double wordPos = double(unit) / double(kProgressUnitsPerWord);
+    const int before = m_cumulativeWordsBeforeSentence.value(index, 0);
+    const int wordsIn = qMax(1, countWords(m_sentences[index].text));
+    *sentenceIndex = index;
+    *fraction = qBound(0.0, (wordPos - double(before)) / double(wordsIn), 1.0);
+}
+
+void MainWindow::previewProgressUnit(int unit)
+{
+    if (m_sentences.isEmpty() || m_totalWords <= 0) {
+        return;
+    }
+    int index = 0;
+    double fraction = 0.0;
+    progressUnitToPosition(unit, &index, &fraction);
+
+    m_currentSentenceIndex = index;
+    m_intraSentenceFraction = fraction;
+
+    const double speed = m_speedSpin->value();
+    const double words = double(unit) / double(kProgressUnitsPerWord);
+    m_elapsedLabel->setText(formatDuration(wordsToSeconds(words, speed)));
+    m_remainingLabel->setText(QStringLiteral("−%1").arg(
+        formatDuration(wordsToSeconds(double(m_totalWords) - words, speed))));
+
+    // Fine highlight follows the thumb even before audio seeks on release.
+    const auto state = m_playback->isPlaying()
+        ? DocumentView::HighlightState::Preparing
+        : DocumentView::HighlightState::Stopped;
+    applyPositionHighlight(state);
+}
+
 void MainWindow::onProgressSliderCommitted(int progressUnit)
 {
     if (m_sentences.isEmpty()) {
         return;
     }
-    const int index = sentenceIndexForProgressUnit(progressUnit);
-    const double wordPos = double(progressUnit) / double(kProgressUnitsPerWord);
-    const int before = m_cumulativeWordsBeforeSentence.value(index, 0);
-    const int wordsIn = qMax(1, countWords(m_sentences[index].text));
-    const double fraction = qBound(0.0, (wordPos - double(before)) / double(wordsIn), 1.0);
+    int index = 0;
+    double fraction = 0.0;
+    progressUnitToPosition(progressUnit, &index, &fraction);
     jumpToSentence(index, fraction);
 }
 
