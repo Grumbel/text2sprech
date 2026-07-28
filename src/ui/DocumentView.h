@@ -102,10 +102,13 @@ public:
     // abstract "zoom level" -- see setBaseFont().
     QFont baseFont() const { return m_baseFont; }
 
-    // Extra document margins (QTextDocument::documentMargin) for a
-    // narrower reading column. Size is the pixel value used when enabled;
-    // when disabled the Qt default (4) is restored. Size may be changed
-    // while disabled and takes effect the next time margins are turned on.
+    // Extra left/right breathing room for a narrower reading column
+    // (applied as QTextEdit viewport margins, not QTextDocument's uniform
+    // documentMargin -- that would also push top/bottom spacing around).
+    // Size is the pixel value used on each side when enabled; when
+    // disabled there is no extra horizontal margin at all. Size may be
+    // changed while disabled and takes effect the next time margins are
+    // turned on.
     bool extraMarginsEnabled() const { return m_extraMarginsEnabled; }
     int extraMarginSize() const { return m_extraMarginSize; }
     void setExtraMarginsEnabled(bool enabled);
@@ -115,7 +118,7 @@ public:
     static constexpr int kDefaultExtraMarginSize = 64;
     static constexpr int kMinExtraMarginSize = 8;
     static constexpr int kMaxExtraMarginSize = 240;
-    static constexpr int kBuiltinDocumentMargin = 4; // Qt default
+    static constexpr int kBuiltinDocumentMargin = 4; // Qt default, always kept for top/bottom
 
 public slots:
     // Sets the base font (family + point size) and applies it immediately.

@@ -80,6 +80,8 @@ private slots:
     // Save writes those defaults; recent-files and per-document positions
     // are written separately under their own groups.
     void openPreferences();
+    // Shows the About dialog (project description, URL, license, copyright).
+    void openAbout();
 
 private:
     void setUpUi();

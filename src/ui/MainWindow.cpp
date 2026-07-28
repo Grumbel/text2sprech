@@ -480,7 +480,23 @@ void MainWindow::setUpUi()
         return QIcon(pm);
     };
 
-    // --- Open (+ Recent) and Paste (+ Paste selection) ---------------------
+    auto paintCopyIcon = []() {
+        // Two overlapping sheets -- the standard "copy" metaphor, used as
+        // a fallback when the icon theme doesn't ship edit-copy.
+        QPixmap pm(64, 64);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(QColor(40, 40, 40), 3));
+        p.setBrush(QColor(225, 225, 225));
+        p.drawRoundedRect(10, 14, 34, 42, 3, 3);
+        p.setBrush(QColor(250, 250, 250));
+        p.drawRoundedRect(20, 6, 34, 42, 3, 3);
+        p.end();
+        return QIcon(pm);
+    };
+
+    // --- Open (+ Recent), Copy, and Paste -----------------------------------
     m_openAction = new QAction(
         themeIcon(QStringLiteral("document-open"), style()->standardIcon(QStyle::SP_DialogOpenButton)),
         tr("&Open…"), this);
@@ -494,28 +510,29 @@ void MainWindow::setUpUi()
 
     connect(m_documentView, &DocumentView::filesDropped, this, &MainWindow::openDroppedUrls);
 
+    auto *copyAction = new QAction(
+        themedOrPainted({QStringLiteral("edit-copy")}, paintCopyIcon()),
+        tr("&Copy"), this);
+    copyAction->setToolTip(tr("Copy the selected text (Ctrl+C)"));
+    copyAction->setShortcut(QKeySequence::Copy);
+    copyAction->setEnabled(false); // like any editor: nothing selected yet
+    connect(copyAction, &QAction::triggered, m_documentView, &DocumentView::copy);
+    connect(m_documentView, &DocumentView::copyAvailable, copyAction, &QAction::setEnabled);
+
+    // Plain paste from the clipboard only -- the primary-selection variant
+    // was dropped from the UI. Middle-click still pastes the primary
+    // selection directly in the document view (a separate, mouse-driven
+    // X11/Wayland convention, not exposed as a menu/toolbar action).
     auto *pasteClipboardAction = new QAction(
         themeIcon(QStringLiteral("edit-paste"), style()->standardIcon(QStyle::SP_DialogResetButton)),
         tr("&Paste"), this);
     pasteClipboardAction->setToolTip(tr("Paste from the clipboard (Ctrl+V)"));
-    pasteClipboardAction->setShortcut(QKeySequence::Paste);
+    // No QAction shortcut here: Ctrl+V is intercepted directly in
+    // DocumentView::keyPressEvent() (see pasteRequested below), since a
+    // window-level shortcut would race/duplicate that handling.
     connect(pasteClipboardAction, &QAction::triggered, this, [this] {
         pasteFromSource(QClipboard::Clipboard);
     });
-
-    auto *pasteSelectionAction = new QAction(tr("Paste &Selection"), this);
-    pasteSelectionAction->setToolTip(tr("Paste the primary selection (middle-click)"));
-    if (!QApplication::clipboard()->supportsSelection()) {
-        pasteSelectionAction->setEnabled(false);
-        pasteSelectionAction->setToolTip(tr("Primary selection isn't supported on this platform"));
-    }
-    connect(pasteSelectionAction, &QAction::triggered, this, [this] {
-        pasteFromSource(QClipboard::Selection);
-    });
-
-    auto *pasteMenu = new QMenu(this);
-    pasteMenu->addAction(pasteClipboardAction);
-    pasteMenu->addAction(pasteSelectionAction);
 
     auto *quitAction = new QAction(
         themeIcon(QStringLiteral("application-exit"), style()->standardIcon(QStyle::SP_DialogCloseButton)),
@@ -587,7 +604,14 @@ void MainWindow::setUpUi()
     preferencesAction->setToolTip(tr("Startup defaults (voice, speed, font, colors)"));
     connect(preferencesAction, &QAction::triggered, this, &MainWindow::openPreferences);
 
-    // --- Menu bar: File / Edit / View / Settings ---------------------------
+    // --- About --------------------------------------------------------------
+    auto *aboutAction = new QAction(tr("&About text2sprech…"), this);
+    connect(aboutAction, &QAction::triggered, this, &MainWindow::openAbout);
+
+    auto *aboutQtAction = new QAction(tr("About &Qt…"), this);
+    connect(aboutQtAction, &QAction::triggered, this, [this] { QMessageBox::aboutQt(this); });
+
+    // --- Menu bar: File / Edit / View / Settings / Help ---------------------
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(m_openAction);
     fileMenu->addMenu(m_recentMenu);
@@ -595,8 +619,8 @@ void MainWindow::setUpUi()
     fileMenu->addAction(quitAction);
 
     QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(copyAction);
     editMenu->addAction(pasteClipboardAction);
-    editMenu->addAction(pasteSelectionAction);
     editMenu->addSeparator();
     editMenu->addAction(m_findAction);
 
@@ -608,6 +632,10 @@ void MainWindow::setUpUi()
 
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
     settingsMenu->addAction(preferencesAction);
+
+    QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+    helpMenu->addAction(aboutAction);
+    helpMenu->addAction(aboutQtAction);
 
     // --- Toolbar: one plain row mirroring the most-used actions -----------
     auto *toolBar = addToolBar(tr("Main Toolbar"));
@@ -622,11 +650,8 @@ void MainWindow::setUpUi()
         openButton->setMenu(m_recentMenu);
         openButton->setPopupMode(QToolButton::MenuButtonPopup);
     }
+    toolBar->addAction(copyAction);
     toolBar->addAction(pasteClipboardAction);
-    if (auto *pasteButton = qobject_cast<QToolButton *>(toolBar->widgetForAction(pasteClipboardAction))) {
-        pasteButton->setMenu(pasteMenu);
-        pasteButton->setPopupMode(QToolButton::MenuButtonPopup);
-    }
     toolBar->addSeparator();
 
     toolBar->addWidget(new QLabel(tr("Voice: "), toolBar));
@@ -1625,6 +1650,24 @@ void MainWindow::openPreferences()
 
     statusBar()->showMessage(
         tr("Preferences saved (voice directories apply on next start)"), 4000);
+}
+
+void MainWindow::openAbout()
+{
+    // QMessageBox::about() already uses the application/window icon and
+    // gives a plain, native-looking dialog with a Close button -- no need
+    // to build a custom one.
+    QMessageBox::about(
+        this, tr("About text2sprech"),
+        tr("<h3>text2sprech</h3>"
+           "<p>A local text-to-speech reader with live sentence "
+           "highlighting, powered by a Piper TTS backend running entirely "
+           "on your machine — nothing is sent to the cloud.</p>"
+           "<p>Project page: "
+           "<a href=\"https://github.com/Grumbel/text2sprech\">"
+           "github.com/Grumbel/text2sprech</a></p>"
+           "<p>Copyright © 2026 Ingo Ruhnke &lt;grumbel@gmail.com&gt;<br>"
+           "Licensed under the GNU General Public License v3.0 or later.</p>"));
 }
 
 void MainWindow::setActivity(const QString &text, ActivityKind kind)

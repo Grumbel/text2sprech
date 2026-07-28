@@ -121,10 +121,15 @@ void DocumentView::setExtraMarginSize(int pixels)
 
 void DocumentView::applyDocumentMargins()
 {
-    // documentMargin is a property of QTextDocument and survives
-    // loadPlainText()/loadHtml() on the same document instance.
-    document()->setDocumentMargin(
-        m_extraMarginsEnabled ? m_extraMarginSize : kBuiltinDocumentMargin);
+    // QTextDocument::documentMargin applies the same value on all four
+    // sides -- that's exactly what made "Margins" pad the text top and
+    // bottom too. Keep the document's own margin at Qt's small built-in
+    // default always, and add the user-facing extra margin as left/right
+    // viewport margins instead, which QTextEdit supports independently of
+    // the document margin and only affects the horizontal gutter.
+    document()->setDocumentMargin(kBuiltinDocumentMargin);
+    const int horizontal = m_extraMarginsEnabled ? m_extraMarginSize : 0;
+    setViewportMargins(horizontal, 0, horizontal, 0);
 }
 
 void DocumentView::setColors(const Colors &colors)
