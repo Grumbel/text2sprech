@@ -26,8 +26,11 @@ struct FileConfig {
     int fontPointSize = -1; // <= 0 means "leave the widget's default size alone"
     DocumentView::Colors colors; // invalid entries = built-in theme defaults
     int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    double lineSpacing = DocumentView::kDefaultLineSpacing;
+    QString presentationFontFamily;
     int presentationFontPointSize = DocumentView::kPresentationFontPointSize;
     int presentationExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    double presentationLineSpacing = DocumentView::kDefaultPresentationLineSpacing;
     DocumentView::Colors presentationColors; // invalid → presentationDefaults()
 };
 
@@ -91,9 +94,26 @@ FileConfig loadFileConfig()
                               << DocumentView::kDefaultExtraMarginPercent;
     }
 
+    bool lineOk = false;
+    const double lineVal = settings.value(QStringLiteral("lineSpacing"),
+                                          DocumentView::kDefaultLineSpacing)
+                               .toDouble(&lineOk);
+    if (lineOk && lineVal >= DocumentView::kMinLineSpacing
+        && lineVal <= DocumentView::kMaxLineSpacing) {
+        config.lineSpacing = lineVal;
+    } else if (settings.contains(QStringLiteral("lineSpacing"))) {
+        qWarning().noquote() << "Config: invalid lineSpacing value"
+                              << settings.value(QStringLiteral("lineSpacing"))
+                              << "(expected" << DocumentView::kMinLineSpacing << "-"
+                              << DocumentView::kMaxLineSpacing << "); using"
+                              << DocumentView::kDefaultLineSpacing;
+    }
+
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("presentation"));
+    config.presentationFontFamily =
+        settings.value(QStringLiteral("fontFamily")).toString().trimmed();
     bool presSizeOk = false;
     const int presPs = settings.value(QStringLiteral("fontPointSize"),
                                       DocumentView::kPresentationFontPointSize)
@@ -119,6 +139,20 @@ FileConfig loadFileConfig()
                               << "(expected" << DocumentView::kMinExtraMarginPercent << "-"
                               << DocumentView::kMaxExtraMarginPercent << "); using"
                               << DocumentView::kDefaultExtraMarginPercent;
+    }
+    bool presLineOk = false;
+    const double presLine = settings.value(QStringLiteral("lineSpacing"),
+                                           DocumentView::kDefaultPresentationLineSpacing)
+                                .toDouble(&presLineOk);
+    if (presLineOk && presLine >= DocumentView::kMinLineSpacing
+        && presLine <= DocumentView::kMaxLineSpacing) {
+        config.presentationLineSpacing = presLine;
+    } else if (settings.contains(QStringLiteral("lineSpacing"))) {
+        qWarning().noquote() << "Config: invalid presentation lineSpacing value"
+                              << settings.value(QStringLiteral("lineSpacing"))
+                              << "(expected" << DocumentView::kMinLineSpacing << "-"
+                              << DocumentView::kMaxLineSpacing << "); using"
+                              << DocumentView::kDefaultPresentationLineSpacing;
     }
     config.presentationColors.text = readColorKey(settings, QStringLiteral("colorText"));
     config.presentationColors.background = readColorKey(settings, QStringLiteral("colorBackground"));
@@ -219,8 +253,11 @@ int main(int argc, char *argv[])
     options.fontPointSize = fileConfig.fontPointSize; // config-file only, no CLI flag
     options.colors = fileConfig.colors; // config-file only, no CLI flag
     options.extraMarginPercent = fileConfig.extraMarginPercent; // config-file only, no CLI flag
+    options.lineSpacing = fileConfig.lineSpacing;
+    options.presentationFontFamily = fileConfig.presentationFontFamily;
     options.presentationFontPointSize = fileConfig.presentationFontPointSize;
     options.presentationExtraMarginPercent = fileConfig.presentationExtraMarginPercent;
+    options.presentationLineSpacing = fileConfig.presentationLineSpacing;
     options.presentationColors = fileConfig.presentationColors;
 
     const QStringList positional = parser.positionalArguments();

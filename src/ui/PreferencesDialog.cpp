@@ -20,6 +20,9 @@
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStyle>
+#include <QTabWidget>
+#include <QScrollArea>
+#include <QFrame>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -38,14 +41,15 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
                                       double defaultSpeed, const QFont &defaultFont,
                                       const DocumentView::Colors &defaultColors,
                                       const QStringList &defaultExtraVoiceDirs,
-                                      int defaultExtraMarginPercent,
+                                      int defaultExtraMarginPercent, double defaultLineSpacing,
                                       PresentationDefaults presentation, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
 
     m_voiceCombo = new QComboBox(this);
-    m_voiceCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_voiceCombo->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_voiceCombo->setMinimumWidth(220);
     m_voiceCombo->addItems(availableVoices);
     if (!defaultVoice.isEmpty() && !availableVoices.contains(defaultVoice)) {
         m_voiceCombo->addItem(defaultVoice);
@@ -56,26 +60,28 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     }
 
     m_speedSpin = new QDoubleSpinBox(this);
-    m_speedSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_speedSpin->setMinimumWidth(90);
+    m_speedSpin->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_speedSpin->setMinimumWidth(120);
     m_speedSpin->setRange(0.5, 3.0);
     m_speedSpin->setSingleStep(0.25);
     m_speedSpin->setSuffix(tr("x"));
     m_speedSpin->setValue(defaultSpeed);
 
     m_fontCombo = new QFontComboBox(this);
-    m_fontCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_fontCombo->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_fontCombo->setMinimumWidth(200);
     m_fontCombo->setCurrentFont(defaultFont);
 
     m_fontSizeSpin = new QSpinBox(this);
-    m_fontSizeSpin->setMinimumWidth(80);
+    m_fontSizeSpin->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_fontSizeSpin->setMinimumWidth(90);
     m_fontSizeSpin->setRange(6, 72);
     m_fontSizeSpin->setSuffix(tr(" pt"));
     m_fontSizeSpin->setValue(defaultFont.pointSize() > 0 ? defaultFont.pointSize() : 12);
 
     m_extraMarginSpin = new QSpinBox(this);
-    m_extraMarginSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_extraMarginSpin->setMinimumWidth(90);
+    m_extraMarginSpin->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_extraMarginSpin->setMinimumWidth(120);
     m_extraMarginSpin->setRange(DocumentView::kMinExtraMarginPercent,
                                 DocumentView::kMaxExtraMarginPercent);
     m_extraMarginSpin->setSingleStep(1);
@@ -88,6 +94,18 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
         qBound(DocumentView::kMinExtraMarginPercent, defaultExtraMarginPercent,
               DocumentView::kMaxExtraMarginPercent));
 
+    m_lineSpacingSpin = new QDoubleSpinBox(this);
+    m_lineSpacingSpin->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_lineSpacingSpin->setMinimumWidth(120);
+    m_lineSpacingSpin->setRange(DocumentView::kMinLineSpacing, DocumentView::kMaxLineSpacing);
+    m_lineSpacingSpin->setSingleStep(0.1);
+    m_lineSpacingSpin->setDecimals(2);
+    m_lineSpacingSpin->setSuffix(tr("×"));
+    m_lineSpacingSpin->setToolTip(
+        tr("Line height relative to single spacing (1.0 = single, 1.5 = one-and-a-half)."));
+    m_lineSpacingSpin->setValue(
+        qBound(DocumentView::kMinLineSpacing, defaultLineSpacing, DocumentView::kMaxLineSpacing));
+
     auto *fontRow = new QWidget(this);
     auto *fontRowLayout = new QHBoxLayout(fontRow);
     fontRowLayout->setContentsMargins(0, 0, 0, 0);
@@ -95,16 +113,13 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     fontRowLayout->addWidget(m_fontSizeSpin, /*stretch=*/1);
 
     const QString voicesDir = defaultUserVoicesDirPath();
-    auto *voicesHelp = new QLabel(
-        tr("Drop Piper <code>.onnx</code> and matching <code>.onnx.json</code> files here "
-           "(any language). Created automatically if missing:"),
-        this);
-    voicesHelp->setWordWrap(true);
-    voicesHelp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *voicesPath = new QLabel(voicesDir, this);
     voicesPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
     voicesPath->setWordWrap(true);
-    voicesPath->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    voicesPath->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    voicesPath->setToolTip(
+        tr("Drop Piper .onnx and matching .onnx.json files here (any language). "
+           "The directory is created automatically if it is missing."));
     QFont pathFont = voicesPath->font();
     pathFont.setFamily(QStringLiteral("monospace"));
     pathFont.setStyleHint(QFont::Monospace);
@@ -114,40 +129,51 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_extraVoiceDirsEdit->setPlaceholderText(
         tr("Optional: one extra directory per line\n/path/to/more/voices"));
     m_extraVoiceDirsEdit->setPlainText(defaultExtraVoiceDirs.join(QLatin1Char('\n')));
-    m_extraVoiceDirsEdit->setFixedHeight(72);
+    m_extraVoiceDirsEdit->setFixedHeight(56);
     m_extraVoiceDirsEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_extraVoiceDirsEdit->setToolTip(
+        tr("Additional directories scanned for Piper voices on next start "
+           "(the user voices folder above is always included)."));
 
     auto makeForm = [](QWidget *parent) {
         auto *form = new QFormLayout(parent);
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
         form->setRowWrapPolicy(QFormLayout::DontWrapRows);
-        form->setHorizontalSpacing(12);
-        form->setVerticalSpacing(8);
-        form->setContentsMargins(10, 8, 10, 10);
+        form->setHorizontalSpacing(16);
+        form->setVerticalSpacing(10);
+        form->setContentsMargins(12, 10, 12, 12);
         return form;
     };
 
     // --- Voice (startup defaults + model paths) -----------------------------
     auto *voiceGroup = new QGroupBox(tr("Voice"), this);
+    voiceGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     auto *voiceForm = makeForm(voiceGroup);
     voiceForm->addRow(tr("Default voice:"), m_voiceCombo);
     voiceForm->addRow(tr("Default speed:"), m_speedSpin);
-    voiceForm->addRow(voicesHelp);
-    voiceForm->addRow(voicesPath);
+    voiceForm->addRow(tr("User voices folder:"), voicesPath);
     voiceForm->addRow(tr("Extra voice dirs:"), m_extraVoiceDirsEdit);
 
-    // --- Formatting (font + reading column) --------------------------------
-    auto *formatGroup = new QGroupBox(tr("Formatting"), this);
+    // --- Reading / Presentation tabs (font, spacing, colors) ----------------
+    const bool dark = palette().color(QPalette::Base).lightness() < 128;
+    const DocumentView::Colors themeDefaults = DocumentView::builtinDefaults(dark);
+    const DocumentView::Colors presentationBuiltins = DocumentView::presentationDefaults();
+
+    auto *readingInner = new QWidget(this);
+    auto *readingLayout = new QVBoxLayout(readingInner);
+    readingLayout->setContentsMargins(8, 10, 8, 10);
+    readingLayout->setSpacing(14);
+
+    auto *formatGroup = new QGroupBox(tr("Formatting"), readingInner);
+    formatGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *formatForm = makeForm(formatGroup);
     formatForm->addRow(tr("Font:"), fontRow);
     formatForm->addRow(tr("Extra text margin (each side):"), m_extraMarginSpin);
+    formatForm->addRow(tr("Line spacing:"), m_lineSpacingSpin);
 
-    // --- Colors ------------------------------------------------------------
-    const bool dark = palette().color(QPalette::Base).lightness() < 128;
-    const DocumentView::Colors themeDefaults = DocumentView::builtinDefaults(dark);
-
-    auto *colorsGroup = new QGroupBox(tr("Colors"), this);
+    auto *colorsGroup = new QGroupBox(tr("Colors"), readingInner);
+    colorsGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *colorsForm = makeForm(colorsGroup);
     m_textColor = addColorRow(colorsForm, tr("Text:"), defaultColors.text, themeDefaults.text);
     m_backgroundColor =
@@ -160,25 +186,49 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
         addColorRow(colorsForm, tr("Stopped highlight:"), defaultColors.stopped, themeDefaults.stopped);
     m_hoverColor = addColorRow(colorsForm, tr("Hover highlight:"), defaultColors.hover, themeDefaults.hover);
 
-    // --- Presentation / teleprompter ---------------------------------------
-    const DocumentView::Colors presentationBuiltins = DocumentView::presentationDefaults();
+    readingLayout->addWidget(formatGroup);
+    readingLayout->addWidget(colorsGroup);
+    readingLayout->addStretch(1);
+
+    auto *readingPage = new QScrollArea(this);
+    readingPage->setWidget(readingInner);
+    readingPage->setWidgetResizable(true);
+    readingPage->setFrameShape(QFrame::NoFrame);
+    readingPage->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    readingPage->setMinimumHeight(320);
+
+    m_presentationFontCombo = new QFontComboBox(this);
+    m_presentationFontCombo->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_presentationFontCombo->setMinimumWidth(200);
+    {
+        QFont seed = defaultFont;
+        if (!presentation.fontFamily.isEmpty()) {
+            seed.setFamily(presentation.fontFamily);
+        }
+        m_presentationFontCombo->setCurrentFont(seed);
+    }
 
     m_presentationFontSizeSpin = new QSpinBox(this);
-    m_presentationFontSizeSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_presentationFontSizeSpin->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_presentationFontSizeSpin->setMinimumWidth(90);
     m_presentationFontSizeSpin->setRange(6, 72);
     m_presentationFontSizeSpin->setSuffix(tr(" pt"));
     m_presentationFontSizeSpin->setToolTip(
-        tr("Font size used while Presentation Mode is active (family stays "
-           "the session font)."));
+        tr("Font used while Presentation Mode is active."));
     m_presentationFontSizeSpin->setValue(
         qBound(6, presentation.fontPointSize > 0 ? presentation.fontPointSize
                                                  : DocumentView::kPresentationFontPointSize,
               72));
 
+    auto *presentationFontRow = new QWidget(this);
+    auto *presentationFontRowLayout = new QHBoxLayout(presentationFontRow);
+    presentationFontRowLayout->setContentsMargins(0, 0, 0, 0);
+    presentationFontRowLayout->addWidget(m_presentationFontCombo, /*stretch=*/3);
+    presentationFontRowLayout->addWidget(m_presentationFontSizeSpin, /*stretch=*/1);
+
     m_presentationMarginSpin = new QSpinBox(this);
-    m_presentationMarginSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_presentationMarginSpin->setMinimumWidth(90);
+    m_presentationMarginSpin->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_presentationMarginSpin->setMinimumWidth(120);
     m_presentationMarginSpin->setRange(DocumentView::kMinExtraMarginPercent,
                                        DocumentView::kMaxExtraMarginPercent);
     m_presentationMarginSpin->setSingleStep(1);
@@ -190,38 +240,70 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
         qBound(DocumentView::kMinExtraMarginPercent, presentation.extraMarginPercent,
               DocumentView::kMaxExtraMarginPercent));
 
-    auto *presentationGroup = new QGroupBox(tr("Presentation mode"), this);
-    auto *presentationForm = makeForm(presentationGroup);
-    presentationForm->addRow(tr("Font size:"), m_presentationFontSizeSpin);
-    presentationForm->addRow(tr("Extra text margin (each side):"), m_presentationMarginSpin);
-    m_presentationTextColor =
-        addColorRow(presentationForm, tr("Text:"), presentation.colors.text, presentationBuiltins.text);
-    m_presentationBackgroundColor = addColorRow(presentationForm, tr("Background:"),
-                                                presentation.colors.background, presentationBuiltins.background);
-    m_presentationPlayingColor = addColorRow(presentationForm, tr("Playing highlight:"),
-                                             presentation.colors.playing, presentationBuiltins.playing);
-    m_presentationPreparingColor = addColorRow(presentationForm, tr("Preparing highlight:"),
-                                               presentation.colors.preparing, presentationBuiltins.preparing);
-    m_presentationStoppedColor = addColorRow(presentationForm, tr("Stopped highlight:"),
-                                             presentation.colors.stopped, presentationBuiltins.stopped);
-    m_presentationHoverColor = addColorRow(presentationForm, tr("Hover highlight:"),
-                                           presentation.colors.hover, presentationBuiltins.hover);
+    m_presentationLineSpacingSpin = new QDoubleSpinBox(this);
+    m_presentationLineSpacingSpin->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_presentationLineSpacingSpin->setMinimumWidth(120);
+    m_presentationLineSpacingSpin->setRange(DocumentView::kMinLineSpacing,
+                                            DocumentView::kMaxLineSpacing);
+    m_presentationLineSpacingSpin->setSingleStep(0.1);
+    m_presentationLineSpacingSpin->setDecimals(2);
+    m_presentationLineSpacingSpin->setSuffix(tr("×"));
+    m_presentationLineSpacingSpin->setToolTip(
+        tr("Line height in Presentation Mode relative to single spacing."));
+    m_presentationLineSpacingSpin->setValue(
+        qBound(DocumentView::kMinLineSpacing, presentation.lineSpacing,
+              DocumentView::kMaxLineSpacing));
 
-    auto *note = new QLabel(
-        tr("Save writes these as the defaults for the next time %1 starts "
-           "(current session unchanged). Apply pushes voice/speed/font/colors/"
-           "margin size and presentation settings into the current session — "
-           "extra voice directories always need a restart. The Margins button "
-           "turns the reading-mode extra margin on or off for this session. "
-           "Presentation Mode always uses its own margin while active. The "
-           "reset button on each color restores the built-in default "
-           "(theme for reading colors, teleprompter defaults for presentation).")
-            .arg(QStringLiteral("text2sprech")),
-        this);
-    note->setWordWrap(true);
-    QFont noteFont = note->font();
-    noteFont.setPointSizeF(noteFont.pointSizeF() * 0.9);
-    note->setFont(noteFont);
+    auto *presentationInner = new QWidget(this);
+    auto *presentationLayout = new QVBoxLayout(presentationInner);
+    presentationLayout->setContentsMargins(8, 10, 8, 10);
+    presentationLayout->setSpacing(14);
+
+    auto *presentationFormatGroup = new QGroupBox(tr("Formatting"), presentationInner);
+    presentationFormatGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *presentationFormatForm = makeForm(presentationFormatGroup);
+    presentationFormatForm->addRow(tr("Font:"), presentationFontRow);
+    presentationFormatForm->addRow(tr("Extra text margin (each side):"), m_presentationMarginSpin);
+    presentationFormatForm->addRow(tr("Line spacing:"), m_presentationLineSpacingSpin);
+
+    auto *presentationColorsGroup = new QGroupBox(tr("Colors"), presentationInner);
+    presentationColorsGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *presentationColorsForm = makeForm(presentationColorsGroup);
+    m_presentationTextColor =
+        addColorRow(presentationColorsForm, tr("Text:"), presentation.colors.text, presentationBuiltins.text);
+    m_presentationBackgroundColor =
+        addColorRow(presentationColorsForm, tr("Background:"), presentation.colors.background,
+                    presentationBuiltins.background);
+    m_presentationPlayingColor =
+        addColorRow(presentationColorsForm, tr("Playing highlight:"), presentation.colors.playing,
+                    presentationBuiltins.playing);
+    m_presentationPreparingColor =
+        addColorRow(presentationColorsForm, tr("Preparing highlight:"), presentation.colors.preparing,
+                    presentationBuiltins.preparing);
+    m_presentationStoppedColor =
+        addColorRow(presentationColorsForm, tr("Stopped highlight:"), presentation.colors.stopped,
+                    presentationBuiltins.stopped);
+    m_presentationHoverColor =
+        addColorRow(presentationColorsForm, tr("Hover highlight:"), presentation.colors.hover,
+                    presentationBuiltins.hover);
+
+    presentationLayout->addWidget(presentationFormatGroup);
+    presentationLayout->addWidget(presentationColorsGroup);
+    presentationLayout->addStretch(1);
+
+    auto *presentationPage = new QScrollArea(this);
+    presentationPage->setWidget(presentationInner);
+    presentationPage->setWidgetResizable(true);
+    presentationPage->setFrameShape(QFrame::NoFrame);
+    presentationPage->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    presentationPage->setMinimumHeight(320);
+
+    auto *tabs = new QTabWidget(this);
+    tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    tabs->setDocumentMode(false);
+    tabs->setUsesScrollButtons(false);
+    tabs->addTab(readingPage, tr("Reading"));
+    tabs->addTab(presentationPage, tr("Presentation"));
 
     auto *buttons = new QDialogButtonBox(this);
     auto *saveBtn = buttons->addButton(QDialogButtonBox::Save);
@@ -234,16 +316,17 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(12);
-    layout->addWidget(voiceGroup);
-    layout->addWidget(formatGroup);
-    layout->addWidget(colorsGroup);
-    layout->addWidget(presentationGroup);
-    layout->addWidget(note);
-    layout->addWidget(buttons);
+    layout->setSpacing(10);
+    // Voice is compact; tabs (with scrollable pages) take the remaining space
+    // so formatting/color rows are never crushed by the voice help text.
+    voiceGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    tabs->setMinimumHeight(360);
+    layout->addWidget(voiceGroup, /*stretch=*/0);
+    layout->addWidget(tabs, /*stretch=*/1);
+    layout->addWidget(buttons, /*stretch=*/0);
 
-    setMinimumWidth(560);
-    adjustSize();
+    setMinimumSize(660, 640);
+    resize(720, 760);
 }
 
 PreferencesDialog::ColorRow *PreferencesDialog::addColorRow(QFormLayout *form, const QString &label,
@@ -256,14 +339,15 @@ PreferencesDialog::ColorRow *PreferencesDialog::addColorRow(QFormLayout *form, c
     row->themeDefault = themeDefault;
 
     auto *field = new QWidget(this);
+    field->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
     auto *rowLayout = new QHBoxLayout(field);
     rowLayout->setContentsMargins(0, 0, 0, 0);
-    rowLayout->setSpacing(6);
+    rowLayout->setSpacing(8);
 
     row->swatch = new QToolButton(field);
     row->swatch->setAutoRaise(false);
     row->swatch->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    row->swatch->setFixedSize(56, 28);
+    row->swatch->setFixedSize(72, 28);
     row->swatch->setToolTip(tr("Choose color"));
     row->swatch->setFocusPolicy(Qt::TabFocus);
     connect(row->swatch, &QToolButton::clicked, this, [this, row] { pickColor(row); });
@@ -367,6 +451,19 @@ int PreferencesDialog::extraMarginPercent() const
                              : DocumentView::kDefaultExtraMarginPercent;
 }
 
+double PreferencesDialog::lineSpacing() const
+{
+    return m_lineSpacingSpin ? m_lineSpacingSpin->value()
+                             : DocumentView::kDefaultLineSpacing;
+}
+
+QFont PreferencesDialog::presentationFont() const
+{
+    QFont f = m_presentationFontCombo ? m_presentationFontCombo->currentFont() : QFont();
+    f.setPointSize(presentationFontPointSize());
+    return f;
+}
+
 int PreferencesDialog::presentationFontPointSize() const
 {
     return m_presentationFontSizeSpin ? m_presentationFontSizeSpin->value()
@@ -377,6 +474,12 @@ int PreferencesDialog::presentationExtraMarginPercent() const
 {
     return m_presentationMarginSpin ? m_presentationMarginSpin->value()
                                     : DocumentView::kDefaultExtraMarginPercent;
+}
+
+double PreferencesDialog::presentationLineSpacing() const
+{
+    return m_presentationLineSpacingSpin ? m_presentationLineSpacingSpin->value()
+                                         : DocumentView::kDefaultPresentationLineSpacing;
 }
 
 DocumentView::Colors PreferencesDialog::presentationColors() const

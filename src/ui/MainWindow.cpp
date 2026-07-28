@@ -35,6 +35,7 @@
 #include <QMimeData>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QTextStream>
@@ -193,9 +194,12 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     m_documentView->setBaseFont(initialFont);
     m_documentView->setColors(m_options.colors);
     m_documentView->setExtraMarginPercent(m_options.extraMarginPercent);
+    m_documentView->setLineSpacing(m_options.lineSpacing);
     // Margins stay off until the user toggles the toolbar button (session).
+    m_presentationFontFamily = m_options.presentationFontFamily;
     m_presentationFontPointSize = m_options.presentationFontPointSize;
     m_presentationExtraMarginPercent = m_options.presentationExtraMarginPercent;
+    m_presentationLineSpacing = m_options.presentationLineSpacing;
     m_presentationColors = m_options.presentationColors;
 
     m_piperClient = new PiperClient(this);
@@ -613,6 +617,23 @@ void MainWindow::setUpUi()
     m_presentationAction->setShortcut(Qt::Key_F11);
     connect(m_presentationAction, &QAction::toggled, this, &MainWindow::setPresentationMode);
     addAction(m_presentationAction);
+
+    // Application-wide so Tab still works when focus is on the toolbar /
+    // player after chrome is revealed (DocumentView keyPressEvent only
+    // runs when the document has focus).
+    m_presentationTabShortcut = new QShortcut(Qt::Key_Tab, this);
+    m_presentationTabShortcut->setContext(Qt::ApplicationShortcut);
+    m_presentationTabShortcut->setEnabled(false);
+    connect(m_presentationTabShortcut, &QShortcut::activated, this,
+            &MainWindow::togglePresentationChrome);
+    m_presentationEscShortcut = new QShortcut(Qt::Key_Escape, this);
+    m_presentationEscShortcut->setContext(Qt::ApplicationShortcut);
+    m_presentationEscShortcut->setEnabled(false);
+    connect(m_presentationEscShortcut, &QShortcut::activated, this, [this] {
+        if (m_presentationMode && m_presentationAction) {
+            m_presentationAction->setChecked(false);
+        }
+    });
 
     // --- Find toggle ----------------------------------------------------
     m_findAction = new QAction(
@@ -1302,13 +1323,20 @@ void MainWindow::applyLivePresentationAppearance()
         return;
     }
     m_documentView->setColors(resolvedPresentationColors(m_presentationColors));
+    // Family: dedicated presentation family if set, otherwise the reading
+    // font that was active when presentation mode was entered (or current
+    // base font when applying from Preferences while already in mode).
     QFont presentationFont = m_presentationMode ? m_savedFont : m_documentView->baseFont();
+    if (!m_presentationFontFamily.isEmpty()) {
+        presentationFont.setFamily(m_presentationFontFamily);
+    }
     const int pt = m_presentationFontPointSize > 0 ? m_presentationFontPointSize
                                                    : DocumentView::kPresentationFontPointSize;
     presentationFont.setPointSize(pt);
     m_documentView->setBaseFont(presentationFont);
     m_documentView->setExtraMarginPercent(m_presentationExtraMarginPercent);
     m_documentView->setExtraMarginsEnabled(true);
+    m_documentView->setLineSpacing(m_presentationLineSpacing);
 }
 
 void MainWindow::setPresentationMode(bool on)
@@ -1327,10 +1355,17 @@ void MainWindow::setPresentationMode(bool on)
         m_savedFont = m_documentView->baseFont();
         m_savedMarginsEnabled = m_documentView->extraMarginsEnabled();
         m_savedMarginPercent = m_documentView->extraMarginPercent();
+        m_savedLineSpacing = m_documentView->lineSpacing();
 
         m_presentationMode = true;
         m_presentationChromeVisible = false;
         m_documentView->setPresentationKeysEnabled(true);
+        if (m_presentationTabShortcut) {
+            m_presentationTabShortcut->setEnabled(true);
+        }
+        if (m_presentationEscShortcut) {
+            m_presentationEscShortcut->setEnabled(true);
+        }
         applyLivePresentationAppearance();
 
         showFullScreen();
@@ -1344,11 +1379,18 @@ void MainWindow::setPresentationMode(bool on)
         m_presentationMode = false;
         m_presentationChromeVisible = false;
         m_documentView->setPresentationKeysEnabled(false);
+        if (m_presentationTabShortcut) {
+            m_presentationTabShortcut->setEnabled(false);
+        }
+        if (m_presentationEscShortcut) {
+            m_presentationEscShortcut->setEnabled(false);
+        }
 
         m_documentView->setColors(m_savedColors);
         m_documentView->setBaseFont(m_savedFont);
         m_documentView->setExtraMarginPercent(m_savedMarginPercent);
         m_documentView->setExtraMarginsEnabled(m_savedMarginsEnabled);
+        m_documentView->setLineSpacing(m_savedLineSpacing);
 
         if (isFullScreen()) {
             showNormal();
@@ -1398,10 +1440,13 @@ void MainWindow::togglePresentationChrome()
     }
     m_presentationChromeVisible = !m_presentationChromeVisible;
     applyPresentationChromeVisibility();
+    // Always return focus to the document so further Tab presses are not
+    // swallowed by toolbar/player widgets (and so typing still targets the
+    // reader). ApplicationShortcut also covers Tab, but focus matters for
+    // arrows / Space.
+    m_documentView->setFocus(Qt::OtherFocusReason);
     if (m_presentationChromeVisible) {
         statusBar()->showMessage(tr("Controls visible — Tab to hide again"), 3000);
-    } else {
-        m_documentView->setFocus(Qt::OtherFocusReason);
     }
 }
 
@@ -1823,6 +1868,15 @@ void MainWindow::openPreferences()
          && marginVal <= DocumentView::kMaxExtraMarginPercent)
             ? marginVal
             : DocumentView::kDefaultExtraMarginPercent;
+    bool lineOk = false;
+    const double lineVal = settings.value(QStringLiteral("lineSpacing"),
+                                          DocumentView::kDefaultLineSpacing)
+                               .toDouble(&lineOk);
+    const double defaultLineSpacing =
+        (lineOk && lineVal >= DocumentView::kMinLineSpacing
+         && lineVal <= DocumentView::kMaxLineSpacing)
+            ? lineVal
+            : DocumentView::kDefaultLineSpacing;
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("voices"));
@@ -1835,6 +1889,8 @@ void MainWindow::openPreferences()
     const int presPs = settings.value(QStringLiteral("fontPointSize"),
                                       DocumentView::kPresentationFontPointSize)
                            .toInt(&presSizeOk);
+    presentationDefaults.fontFamily =
+        settings.value(QStringLiteral("fontFamily")).toString().trimmed();
     presentationDefaults.fontPointSize =
         (presSizeOk && presPs >= 6 && presPs <= 72) ? presPs
                                                     : DocumentView::kPresentationFontPointSize;
@@ -1847,6 +1903,15 @@ void MainWindow::openPreferences()
          && presMargin <= DocumentView::kMaxExtraMarginPercent)
             ? presMargin
             : DocumentView::kDefaultExtraMarginPercent;
+    bool presLineOk = false;
+    const double presLine = settings.value(QStringLiteral("lineSpacing"),
+                                           DocumentView::kDefaultPresentationLineSpacing)
+                                .toDouble(&presLineOk);
+    presentationDefaults.lineSpacing =
+        (presLineOk && presLine >= DocumentView::kMinLineSpacing
+         && presLine <= DocumentView::kMaxLineSpacing)
+            ? presLine
+            : DocumentView::kDefaultPresentationLineSpacing;
     presentationDefaults.colors.text = readColor(QStringLiteral("colorText"));
     presentationDefaults.colors.background = readColor(QStringLiteral("colorBackground"));
     presentationDefaults.colors.playing = readColor(QStringLiteral("colorPlaying"));
@@ -1862,15 +1927,18 @@ void MainWindow::openPreferences()
     defaultFont.setPointSize(defaultPointSize);
 
     PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors,
-                             extraVoiceDirs, defaultExtraMarginPercent, presentationDefaults, this);
+                             extraVoiceDirs, defaultExtraMarginPercent, defaultLineSpacing,
+                             presentationDefaults, this);
 
     auto applyToSession = [this, &dialog] {
         if (!dialog.voice().isEmpty()) {
             m_voiceCombo->setCurrentText(dialog.voice());
         }
         m_speedSpin->setValue(dialog.speed());
+        m_presentationFontFamily = dialog.presentationFont().family();
         m_presentationFontPointSize = dialog.presentationFontPointSize();
         m_presentationExtraMarginPercent = dialog.presentationExtraMarginPercent();
+        m_presentationLineSpacing = dialog.presentationLineSpacing();
         m_presentationColors = dialog.presentationColors();
         if (m_presentationMode) {
             // Keep presentation look in sync; don't clobber with reading colors.
@@ -1879,6 +1947,7 @@ void MainWindow::openPreferences()
             m_documentView->setBaseFont(dialog.font());
             m_documentView->setColors(dialog.colors());
             m_documentView->setExtraMarginPercent(dialog.extraMarginPercent());
+            m_documentView->setLineSpacing(dialog.lineSpacing());
         }
         statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
     };
@@ -1904,6 +1973,7 @@ void MainWindow::openPreferences()
     settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
     settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
     settings.setValue(QStringLiteral("extraMarginPercent"), dialog.extraMarginPercent());
+    settings.setValue(QStringLiteral("lineSpacing"), dialog.lineSpacing());
     storeColor(QStringLiteral("colorText"), chosenColors.text);
     storeColor(QStringLiteral("colorBackground"), chosenColors.background);
     storeColor(QStringLiteral("colorPlaying"), chosenColors.playing);
@@ -1918,8 +1988,10 @@ void MainWindow::openPreferences()
 
     const DocumentView::Colors chosenPresentationColors = dialog.presentationColors();
     settings.beginGroup(QStringLiteral("presentation"));
+    settings.setValue(QStringLiteral("fontFamily"), dialog.presentationFont().family());
     settings.setValue(QStringLiteral("fontPointSize"), dialog.presentationFontPointSize());
     settings.setValue(QStringLiteral("extraMarginPercent"), dialog.presentationExtraMarginPercent());
+    settings.setValue(QStringLiteral("lineSpacing"), dialog.presentationLineSpacing());
     storeColor(QStringLiteral("colorText"), chosenPresentationColors.text);
     storeColor(QStringLiteral("colorBackground"), chosenPresentationColors.background);
     storeColor(QStringLiteral("colorPlaying"), chosenPresentationColors.playing);

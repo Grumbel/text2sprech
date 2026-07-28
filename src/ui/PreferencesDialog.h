@@ -15,6 +15,7 @@ class QDoubleSpinBox;
 class QFontComboBox;
 class QPlainTextEdit;
 class QSpinBox;
+class QTabWidget;
 class QToolButton;
 
 // Edits startup defaults (config file) and optionally applies them to the
@@ -33,8 +34,10 @@ class QToolButton;
 // default argument (nested default-member-initializers cannot be used
 // that way before the enclosing class is complete).
 struct PresentationDefaults {
+    QString fontFamily; // empty → seed from reading/default font in the dialog
     int fontPointSize = DocumentView::kPresentationFontPointSize;
     int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    double lineSpacing = DocumentView::kDefaultPresentationLineSpacing;
     DocumentView::Colors colors; // invalid channel → presentationDefaults()
 };
 
@@ -51,6 +54,7 @@ public:
                        const QFont &defaultFont, const DocumentView::Colors &defaultColors,
                        const QStringList &defaultExtraVoiceDirs = {},
                        int defaultExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent,
+                       double defaultLineSpacing = DocumentView::kDefaultLineSpacing,
                        PresentationDefaults presentation = {},
                        QWidget *parent = nullptr);
 
@@ -64,10 +68,13 @@ public:
     // Percent of DocumentView width for extra left/right margins when the
     // toolbar toggle is on.
     int extraMarginPercent() const;
+    double lineSpacing() const;
 
-    // Presentation / teleprompter defaults (font size, margin %, colors).
+    // Presentation / teleprompter defaults (font, margin %, line spacing, colors).
+    QFont presentationFont() const;
     int presentationFontPointSize() const;
     int presentationExtraMarginPercent() const;
+    double presentationLineSpacing() const;
     DocumentView::Colors presentationColors() const;
 
 signals:
@@ -98,6 +105,7 @@ private:
     QFontComboBox *m_fontCombo;
     QSpinBox *m_fontSizeSpin;
     QSpinBox *m_extraMarginSpin = nullptr;
+    QDoubleSpinBox *m_lineSpacingSpin = nullptr;
     QPlainTextEdit *m_extraVoiceDirsEdit = nullptr;
 
     ColorRow *m_textColor = nullptr;
@@ -107,8 +115,10 @@ private:
     ColorRow *m_stoppedColor = nullptr;
     ColorRow *m_hoverColor = nullptr;
 
+    QFontComboBox *m_presentationFontCombo = nullptr;
     QSpinBox *m_presentationFontSizeSpin = nullptr;
     QSpinBox *m_presentationMarginSpin = nullptr;
+    QDoubleSpinBox *m_presentationLineSpacingSpin = nullptr;
     ColorRow *m_presentationTextColor = nullptr;
     ColorRow *m_presentationBackgroundColor = nullptr;
     ColorRow *m_presentationPlayingColor = nullptr;

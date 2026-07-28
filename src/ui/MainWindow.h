@@ -25,6 +25,7 @@ class QLabel;
 class QLineEdit;
 class QMenu;
 class QSlider;
+class QShortcut;
 class QToolBar;
 class QToolButton;
 class QWidget;
@@ -49,10 +50,13 @@ public:
         // toolbar Margins toggle is on. Config-file only; the toggle itself
         // is session state.
         int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+        double lineSpacing = DocumentView::kDefaultLineSpacing;
         // Presentation / teleprompter defaults (config [presentation] group).
         // Invalid color channels resolve to DocumentView::presentationDefaults().
+        QString presentationFontFamily; // empty → keep reading/session family
         int presentationFontPointSize = DocumentView::kPresentationFontPointSize;
         int presentationExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+        double presentationLineSpacing = DocumentView::kDefaultPresentationLineSpacing;
         DocumentView::Colors presentationColors;
         // At most one of these "start with X" sources is used, in this
         // priority order: pasteSelection, pasteClipboard, initialFile.
@@ -203,6 +207,8 @@ private:
     QAction *m_marginsAction = nullptr; // checkable session toggle for extra text margins
     QAction *m_findAction = nullptr;    // checkable toggle for the find bar
     QAction *m_presentationAction = nullptr; // checkable: presentation / fullscreen
+    QShortcut *m_presentationTabShortcut = nullptr; // Tab toggles chrome (any focus)
+    QShortcut *m_presentationEscShortcut = nullptr; // Esc exits presentation
     QAction *m_openAction = nullptr;
     QMenu *m_recentMenu = nullptr;
     QToolBar *m_toolBar = nullptr;
@@ -257,9 +263,12 @@ private:
     QFont m_savedFont;
     bool m_savedMarginsEnabled = false;
     int m_savedMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    double m_savedLineSpacing = DocumentView::kDefaultLineSpacing;
     // Live presentation settings (seeded from config; Preferences can update).
+    QString m_presentationFontFamily; // empty → use saved/session family
     int m_presentationFontPointSize = DocumentView::kPresentationFontPointSize;
     int m_presentationExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    double m_presentationLineSpacing = DocumentView::kDefaultPresentationLineSpacing;
     DocumentView::Colors m_presentationColors; // invalid → presentationDefaults()
     // True while we are programmatically leaving fullscreen so changeEvent
     // does not treat the window-state change as an external exit.

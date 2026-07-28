@@ -123,12 +123,22 @@ public:
     void setExtraMarginsEnabled(bool enabled);
     void setExtraMarginPercent(int percent);
 
+    // Proportional line height (1.0 = single, 1.5 = one-and-a-half, etc.).
+    // Applied to every block; re-applied after loadPlainText/loadHtml.
+    double lineSpacing() const { return m_lineSpacing; }
+    void setLineSpacing(double factor);
+
     // Built-in defaults for the margin preference spin box / config.
     // Percent of DocumentView width applied as left and right gutter.
     static constexpr int kDefaultExtraMarginPercent = 10;
     static constexpr int kMinExtraMarginPercent = 0;
     static constexpr int kMaxExtraMarginPercent = 40;
     static constexpr int kBuiltinDocumentMargin = 4; // Qt default, always kept for top/bottom
+
+    static constexpr double kDefaultLineSpacing = 1.0;
+    static constexpr double kDefaultPresentationLineSpacing = 1.5;
+    static constexpr double kMinLineSpacing = 0.8;
+    static constexpr double kMaxLineSpacing = 3.0;
 
 public slots:
     // Sets the base font (family + point size) and applies it immediately.
@@ -219,8 +229,10 @@ private:
     QFont m_baseFont;
 
     void applyDocumentMargins();
+    void applyLineSpacing();
 
     bool m_extraMarginsEnabled = false;
     int m_extraMarginPercent = kDefaultExtraMarginPercent;
+    double m_lineSpacing = kDefaultLineSpacing;
     bool m_presentationKeysEnabled = false;
 };

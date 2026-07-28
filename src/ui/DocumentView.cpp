@@ -17,6 +17,7 @@
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
+#include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextFrame>
 #include <QTextFrameFormat>
@@ -77,6 +78,7 @@ void DocumentView::loadPlainText(const QString &text)
     // setPlainText rebuilds the document; re-apply frame gutters so margins
     // survive a load while the Margins toggle (or presentation mode) is on.
     applyDocumentMargins();
+    applyLineSpacing();
 }
 
 void DocumentView::loadHtml(const QString &html)
@@ -86,6 +88,7 @@ void DocumentView::loadHtml(const QString &html)
     // structural tags we keep; it is not a full browser engine.
     setHtml(html);
     applyDocumentMargins();
+    applyLineSpacing();
 }
 
 void DocumentView::setBaseFont(const QFont &font)
@@ -170,6 +173,30 @@ void DocumentView::applyDocumentMargins()
         fmt.setRightMargin(horizontal);
         root->setFrameFormat(fmt);
     }
+}
+
+void DocumentView::setLineSpacing(double factor)
+{
+    const double clamped = qBound(kMinLineSpacing, factor, kMaxLineSpacing);
+    if (qFuzzyCompare(m_lineSpacing, clamped)) {
+        applyLineSpacing();
+        return;
+    }
+    m_lineSpacing = clamped;
+    applyLineSpacing();
+}
+
+void DocumentView::applyLineSpacing()
+{
+    // ProportionalHeight: 100 = single spacing. Must touch every block;
+    // selecting the whole document and mergeBlockFormat is the cheapest way.
+    QTextCursor cursor(document());
+    cursor.beginEditBlock();
+    cursor.select(QTextCursor::Document);
+    QTextBlockFormat fmt = cursor.blockFormat();
+    fmt.setLineHeight(m_lineSpacing * 100.0, QTextBlockFormat::ProportionalHeight);
+    cursor.mergeBlockFormat(fmt);
+    cursor.endEditBlock();
 }
 
 void DocumentView::resizeEvent(QResizeEvent *event)

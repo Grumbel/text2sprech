@@ -107,6 +107,7 @@ speed=1.25
 fontFamily=Noto Sans
 fontPointSize=13
 extraMarginPercent=10
+lineSpacing=1.0
 # Optional color overrides (HexArgb); omit to use built-in light/dark theme defaults
 # colorText=#FF1C1E22
 # colorBackground=#FFFFFFFF
@@ -134,6 +135,7 @@ its own defaults under a separate group:
 [presentation]
 fontPointSize=28
 extraMarginPercent=10
+lineSpacing=1.5
 # Optional color overrides (HexArgb); omit for built-in black/amber teleprompter palette
 # colorText=#FFF0F0F2
 # colorBackground=#FF000000
