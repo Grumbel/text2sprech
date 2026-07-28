@@ -9,17 +9,19 @@ class QAction;
 class QHBoxLayout;
 class QLabel;
 class QToolButton;
-class QVBoxLayout;
 
-// Labeled cluster of controls. Controls are top-aligned; the group title
-// sits on a shared baseline under all groups (ribbon-style).
+// A cluster of related controls (e.g. "Open + Paste", "Voice + Speed").
+// Everything in a group sits on one shared, vertically-centered baseline —
+// no separate caption row, no per-group height quirks. The group's title is
+// exposed as an accessible name / tooltip prefix rather than drawn on
+// screen, which is what kept the old ribbon-style strip from lining up.
 class RibbonGroup : public QWidget {
     Q_OBJECT
 public:
     explicit RibbonGroup(const QString &title, QWidget *parent = nullptr);
 
     QToolButton *addAction(QAction *action,
-                           Qt::ToolButtonStyle style = Qt::ToolButtonTextUnderIcon);
+                           Qt::ToolButtonStyle style = Qt::ToolButtonTextBesideIcon);
     void addWidget(QWidget *widget, int stretch = 0);
     void addSpacing(int px = 6);
 
@@ -27,10 +29,13 @@ public:
 
 private:
     QHBoxLayout *m_controls = nullptr;
-    QLabel *m_titleLabel = nullptr;
+    QString m_title;
 };
 
-// Single-row strip of labeled groups (Microsoft Ribbon-lite, no tabs).
+// Single-row toolbar strip of logically grouped controls, separated by
+// thin vertical rules. Every control shares one fixed-height, vertically
+// centered baseline regardless of whether it's a button, combo box, or
+// spin box.
 class RibbonBar : public QWidget {
     Q_OBJECT
 public:

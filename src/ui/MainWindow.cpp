@@ -610,6 +610,11 @@ void MainWindow::setUpUi()
     addAction(m_findAction);
     navGroup->addAction(m_findAction);
 
+    // Push Settings to the far right, separated from the primary editing
+    // and playback controls on the left — a conventional toolbar layout
+    // that keeps secondary actions out of the main flow.
+    ribbon->addStretch();
+
     // --- Settings: avoid Preferences/Preferences label duplication --------
     RibbonGroup *settingsGroup = ribbon->addGroup(tr("Settings"));
     auto *preferencesAction = new QAction(
@@ -618,8 +623,6 @@ void MainWindow::setUpUi()
     preferencesAction->setToolTip(tr("Startup defaults (voice, speed, font, colors)"));
     connect(preferencesAction, &QAction::triggered, this, &MainWindow::openPreferences);
     settingsGroup->addAction(preferencesAction);
-
-    ribbon->addStretch();
 
     connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);

@@ -3,38 +3,37 @@
 
 #include "RibbonBar.h"
 
+#include <QAbstractSpinBox>
 #include <QAction>
+#include <QComboBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSizePolicy>
 #include <QToolButton>
-#include <QVBoxLayout>
+
+namespace {
+// Every interactive control in the bar shares this height, so buttons,
+// combo boxes, and spin boxes all line up on one baseline.
+constexpr int kControlHeight = 30;
+constexpr int kIconSize = 18;
+// Height of the vertical rule between groups; shorter than the bar itself
+// so it reads as a subtle divider, not a hard wall.
+constexpr int kSeparatorHeight = 22;
+} // namespace
 
 RibbonGroup::RibbonGroup(const QString &title, QWidget *parent)
     : QWidget(parent)
+    , m_title(title)
 {
     setObjectName(QStringLiteral("ribbonGroup"));
-    // Fill the bar height so every group's title sits on the same baseline.
-    setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
+    setAccessibleName(title);
+    setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
 
-    auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(10, 6, 10, 4);
-    outer->setSpacing(2);
-
-    m_controls = new QHBoxLayout;
+    m_controls = new QHBoxLayout(this);
     m_controls->setContentsMargins(0, 0, 0, 0);
     m_controls->setSpacing(4);
-    // Controls stick to the top; empty space pushes the title to the bottom.
-    m_controls->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    outer->addLayout(m_controls, /*stretch=*/1);
-
-    m_titleLabel = new QLabel(title, this);
-    m_titleLabel->setObjectName(QStringLiteral("ribbonGroupTitle"));
-    m_titleLabel->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    // Fixed title row so captions line up across groups.
-    m_titleLabel->setMinimumHeight(16);
-    outer->addWidget(m_titleLabel, 0, Qt::AlignHCenter | Qt::AlignBottom);
+    m_controls->setAlignment(Qt::AlignVCenter);
 }
 
 QToolButton *RibbonGroup::addAction(QAction *action, Qt::ToolButtonStyle style)
@@ -43,9 +42,16 @@ QToolButton *RibbonGroup::addAction(QAction *action, Qt::ToolButtonStyle style)
     btn->setDefaultAction(action);
     btn->setToolButtonStyle(style);
     btn->setAutoRaise(true);
-    btn->setIconSize(QSize(22, 22));
-    btn->setMinimumWidth(52);
-    m_controls->addWidget(btn, 0, Qt::AlignLeft | Qt::AlignTop);
+    btn->setIconSize(QSize(kIconSize, kIconSize));
+    btn->setFixedHeight(kControlHeight);
+    btn->setCursor(Qt::PointingHandCursor);
+    if (!m_title.isEmpty() && action) {
+        // Keep the group's purpose discoverable without drawing a caption
+        // row: "Voice — Speed" instead of just "Speed".
+        const QString tip = action->toolTip();
+        btn->setToolTip(tip.isEmpty() ? m_title : (m_title + QStringLiteral(" — ") + tip));
+    }
+    m_controls->addWidget(btn, 0, Qt::AlignVCenter);
     return btn;
 }
 
@@ -55,7 +61,12 @@ void RibbonGroup::addWidget(QWidget *widget, int stretch)
         return;
     }
     widget->setParent(this);
-    m_controls->addWidget(widget, stretch, Qt::AlignLeft | Qt::AlignTop);
+    // Normalize height for the common "other" controls used in the bar so
+    // they sit on the same baseline as the tool buttons.
+    if (qobject_cast<QComboBox *>(widget) || qobject_cast<QAbstractSpinBox *>(widget)) {
+        widget->setFixedHeight(kControlHeight);
+    }
+    m_controls->addWidget(widget, stretch, Qt::AlignVCenter);
 }
 
 void RibbonGroup::addSpacing(int px)
@@ -68,16 +79,12 @@ RibbonBar::RibbonBar(QWidget *parent)
 {
     setObjectName(QStringLiteral("ribbonBar"));
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    // Fixed strip height so Expanding groups all match and titles align.
-    setMinimumHeight(78);
-    setMaximumHeight(96);
+    setFixedHeight(48);
 
     m_layout = new QHBoxLayout(this);
-    m_layout->setContentsMargins(6, 2, 6, 2);
-    m_layout->setSpacing(0);
-    // Default vertical alignment (not AlignTop) so Expanding groups stretch
-    // to the full bar height and their bottom titles share one baseline.
-    m_layout->setAlignment(Qt::AlignLeft);
+    m_layout->setContentsMargins(12, 0, 12, 0);
+    m_layout->setSpacing(10);
+    m_layout->setAlignment(Qt::AlignVCenter);
 
     setStyleSheet(QStringLiteral(
         "QWidget#ribbonBar {"
@@ -87,27 +94,35 @@ RibbonBar::RibbonBar(QWidget *parent)
         "QWidget#ribbonGroup {"
         "  background: transparent;"
         "}"
-        "QLabel#ribbonGroupTitle {"
-        "  color: palette(mid);"
-        "  font-size: 11px;"
-        "  padding: 2px 4px 0 4px;"
-        "}"
         "QToolButton {"
         "  padding: 4px 8px;"
         "  border: 1px solid transparent;"
-        "  border-radius: 3px;"
+        "  border-radius: 5px;"
         "}"
         "QToolButton:hover {"
         "  background-color: palette(midlight);"
-        "  border: 1px solid palette(mid);"
         "}"
-        "QToolButton:pressed, QToolButton:checked {"
-        "  background-color: palette(light);"
-        "  border: 1px solid palette(mid);"
+        "QToolButton:pressed {"
+        "  background-color: palette(mid);"
+        "}"
+        "QToolButton:checked {"
+        "  background-color: palette(highlight);"
+        "  color: palette(highlighted-text);"
+        "}"
+        "QToolButton::menu-button {"
+        "  border: none;"
+        "  width: 14px;"
         "}"
         "QFrame#ribbonSeparator {"
+        "  background-color: palette(mid);"
         "  max-width: 1px;"
-        "  margin: 6px 4px;"
+        "  min-width: 1px;"
+        "}"
+        "QComboBox, QDoubleSpinBox {"
+        "  padding: 2px 6px;"
+        "  border: 1px solid palette(mid);"
+        "  border-radius: 5px;"
+        "  background-color: palette(base);"
         "}"));
 }
 
@@ -118,7 +133,8 @@ void RibbonBar::appendSeparator()
     sep->setFrameShape(QFrame::VLine);
     sep->setFrameShadow(QFrame::Plain);
     sep->setFixedWidth(1);
-    m_layout->addWidget(sep);
+    sep->setFixedHeight(kSeparatorHeight);
+    m_layout->addWidget(sep, 0, Qt::AlignVCenter);
 }
 
 RibbonGroup *RibbonBar::addGroup(const QString &title)
@@ -127,8 +143,7 @@ RibbonGroup *RibbonBar::addGroup(const QString &title)
         appendSeparator();
     }
     auto *group = new RibbonGroup(title, this);
-    // No AlignTop: Expanding groups fill the bar height so titles align.
-    m_layout->addWidget(group, 0);
+    m_layout->addWidget(group, 0, Qt::AlignVCenter);
     m_hasGroup = true;
     return group;
 }
@@ -141,5 +156,5 @@ void RibbonBar::addStretch(int stretch)
 QSize RibbonBar::sizeHint() const
 {
     const QSize base = QWidget::sizeHint();
-    return QSize(base.width(), qMax(base.height(), 78));
+    return QSize(base.width(), qMax(base.height(), 48));
 }
