@@ -24,6 +24,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMenuBar>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QSizePolicy>
@@ -49,7 +50,6 @@
 
 #include "DocumentView.h"
 #include "PreferencesDialog.h"
-#include "RibbonBar.h"
 #include "document/HtmlSanitizer.h"
 #include "document/SentenceSplitter.h"
 #include "speech/PiperClient.h"
@@ -422,13 +422,9 @@ void MainWindow::setUpUi()
         m_findStatusLabel->clear();
     });
 
-    // --- Ribbon-style command strip (grouped, Office-inspired) ------------
-    // Qt has no built-in Ribbon; RibbonBar is a single-row stand-in with
-    // labeled groups (Text / Voice / Formatting / Navigation / Settings).
-    auto *ribbon = new RibbonBar(central);
-    // Insert at top: this block runs after the document is already in the layout.
-    centralLayout->insertWidget(0, ribbon);
-
+    // --- Menu bar + toolbar (plain and conventional: File / Edit / View /
+    // Settings menus, with a single classic toolbar underneath mirroring
+    // the most-used actions). No custom widgets, no special layout tricks.
     auto themeIcon = [](const QString &name, const QIcon &fallback) {
         const QIcon icon = QIcon::fromTheme(name);
         return icon.isNull() ? fallback : icon;
@@ -484,34 +480,30 @@ void MainWindow::setUpUi()
         return QIcon(pm);
     };
 
-    // --- Text: Open (with Recent) + Paste --------------------------------
-    RibbonGroup *textGroup = ribbon->addGroup(tr("Text"));
-
+    // --- Open (+ Recent) and Paste (+ Paste selection) ---------------------
     m_openAction = new QAction(
         themeIcon(QStringLiteral("document-open"), style()->standardIcon(QStyle::SP_DialogOpenButton)),
-        tr("Open"), this);
+        tr("&Open…"), this);
     m_openAction->setToolTip(tr("Open a text or HTML file (or drop one onto the window)"));
     m_openAction->setShortcut(QKeySequence::Open);
     connect(m_openAction, &QAction::triggered, this, &MainWindow::openFile);
     addAction(m_openAction);
 
-    m_recentMenu = new QMenu(tr("Recent"), this);
+    m_recentMenu = new QMenu(tr("Open &Recent"), this);
     rebuildRecentMenu();
-    auto *openButton = textGroup->addAction(m_openAction);
-    openButton->setMenu(m_recentMenu);
-    openButton->setPopupMode(QToolButton::MenuButtonPopup);
 
     connect(m_documentView, &DocumentView::filesDropped, this, &MainWindow::openDroppedUrls);
 
     auto *pasteClipboardAction = new QAction(
         themeIcon(QStringLiteral("edit-paste"), style()->standardIcon(QStyle::SP_DialogResetButton)),
-        tr("Paste"), this);
+        tr("&Paste"), this);
     pasteClipboardAction->setToolTip(tr("Paste from the clipboard (Ctrl+V)"));
+    pasteClipboardAction->setShortcut(QKeySequence::Paste);
     connect(pasteClipboardAction, &QAction::triggered, this, [this] {
         pasteFromSource(QClipboard::Clipboard);
     });
 
-    auto *pasteSelectionAction = new QAction(tr("Paste selection"), this);
+    auto *pasteSelectionAction = new QAction(tr("Paste &Selection"), this);
     pasteSelectionAction->setToolTip(tr("Paste the primary selection (middle-click)"));
     if (!QApplication::clipboard()->supportsSelection()) {
         pasteSelectionAction->setEnabled(false);
@@ -524,77 +516,56 @@ void MainWindow::setUpUi()
     auto *pasteMenu = new QMenu(this);
     pasteMenu->addAction(pasteClipboardAction);
     pasteMenu->addAction(pasteSelectionAction);
-    auto *pasteButton = textGroup->addAction(pasteClipboardAction);
-    pasteButton->setMenu(pasteMenu);
-    pasteButton->setPopupMode(QToolButton::MenuButtonPopup);
 
-    // --- Voice: combo + speed --------------------------------------------
-    RibbonGroup *voiceGroup = ribbon->addGroup(tr("Voice"));
+    auto *quitAction = new QAction(
+        themeIcon(QStringLiteral("application-exit"), style()->standardIcon(QStyle::SP_DialogCloseButton)),
+        tr("&Quit"), this);
+    quitAction->setToolTip(tr("Quit text2sprech"));
+    quitAction->setShortcut(QKeySequence::Quit);
+    connect(quitAction, &QAction::triggered, this, &QWidget::close);
 
-    m_voiceCombo = new QComboBox(voiceGroup);
-    m_voiceCombo->setMinimumWidth(150);
-    m_voiceCombo->setMaximumWidth(260);
-    m_voiceCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_voiceCombo->setToolTip(tr("TTS voice for this session"));
-    connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [this](const QString &voice) {
-        m_playback->setVoice(voice);
-    });
-    voiceGroup->addWidget(m_voiceCombo);
-
-    m_speedSpin = new QDoubleSpinBox(voiceGroup);
-    m_speedSpin->setRange(0.5, 3.0);
-    m_speedSpin->setSingleStep(0.25);
-    m_speedSpin->setDecimals(2);
-    m_speedSpin->setSuffix(tr("×"));
-    m_speedSpin->setMinimumWidth(72);
-    m_speedSpin->setToolTip(tr("Playback speed (also [ ] < > + − keys)"));
-    m_speedSpin->blockSignals(true);
-    m_speedSpin->setValue(m_options.speed);
-    m_speedSpin->blockSignals(false);
-    connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
-    voiceGroup->addWidget(m_speedSpin);
-
-    // --- Formatting: text size + margins ---------------------------------
-    RibbonGroup *formatGroup = ribbon->addGroup(tr("Formatting"));
-
+    // --- Text size + margins ------------------------------------------------
+    // "A−" / "A+" are recognizable from any text editor; zoom-out/zoom-in
+    // is the standard freedesktop icon pair most themes ship for this.
     auto *decreaseTextSizeAction = new QAction(
         themedOrPainted(
-            {QStringLiteral("format-text-smaller"), QStringLiteral("zoom-out"),
+            {QStringLiteral("zoom-out"), QStringLiteral("format-text-smaller"),
              QStringLiteral("list-remove")},
             paintTextSizeIcon(false)),
-        tr("A−"), this);
+        tr("&Decrease Text Size"), this);
     decreaseTextSizeAction->setToolTip(tr("Decrease text size (Ctrl+−)"));
+    decreaseTextSizeAction->setShortcut(QKeySequence::ZoomOut);
     connect(decreaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
-    formatGroup->addAction(decreaseTextSizeAction);
 
     auto *increaseTextSizeAction = new QAction(
         themedOrPainted(
-            {QStringLiteral("format-text-larger"), QStringLiteral("zoom-in"),
+            {QStringLiteral("zoom-in"), QStringLiteral("format-text-larger"),
              QStringLiteral("list-add")},
             paintTextSizeIcon(true)),
-        tr("A+"), this);
+        tr("&Increase Text Size"), this);
     increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
+    increaseTextSizeAction->setShortcut(QKeySequence::ZoomIn);
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
-    formatGroup->addAction(increaseTextSizeAction);
 
+    // format-indent-more is the closest standard "text editor" icon for
+    // margin/indent guides; several icon themes also ship object-columns
+    // or view-paged, which read just as well for this.
     m_marginsAction = new QAction(
         themedOrPainted(
-            {QStringLiteral("format-justify-center"), QStringLiteral("object-columns"),
-             QStringLiteral("view-paged"), QStringLiteral("format-indent-more")},
+            {QStringLiteral("format-indent-more"), QStringLiteral("object-columns"),
+             QStringLiteral("view-paged"), QStringLiteral("format-justify-center")},
             paintMarginsIcon()),
-        tr("Margins"), this);
+        tr("&Margins"), this);
     m_marginsAction->setCheckable(true);
     m_marginsAction->setChecked(false);
     m_marginsAction->setToolTip(
         tr("Extra padding around the text (size set in Preferences)"));
     connect(m_marginsAction, &QAction::toggled, m_documentView, &DocumentView::setExtraMarginsEnabled);
-    formatGroup->addAction(m_marginsAction);
 
-    // --- Navigation: Find toggle (room for chapter skip later) -----------
-    RibbonGroup *navGroup = ribbon->addGroup(tr("Navigation"));
+    // --- Find toggle ----------------------------------------------------
     m_findAction = new QAction(
         themeIcon(QStringLiteral("edit-find"), style()->standardIcon(QStyle::SP_FileDialogContentsView)),
-        tr("Find"), this);
+        tr("&Find…"), this);
     m_findAction->setToolTip(tr("Show or hide the find bar (Ctrl+F)"));
     m_findAction->setCheckable(true);
     m_findAction->setChecked(false);
@@ -608,21 +579,91 @@ void MainWindow::setUpUi()
         }
     });
     addAction(m_findAction);
-    navGroup->addAction(m_findAction);
 
-    // Push Settings to the far right, separated from the primary editing
-    // and playback controls on the left — a conventional toolbar layout
-    // that keeps secondary actions out of the main flow.
-    ribbon->addStretch();
-
-    // --- Settings: avoid Preferences/Preferences label duplication --------
-    RibbonGroup *settingsGroup = ribbon->addGroup(tr("Settings"));
+    // --- Preferences ------------------------------------------------------
     auto *preferencesAction = new QAction(
         themeIcon(QStringLiteral("preferences-system"), style()->standardIcon(QStyle::SP_FileDialogDetailedView)),
-        tr("Preferences"), this);
+        tr("&Preferences…"), this);
     preferencesAction->setToolTip(tr("Startup defaults (voice, speed, font, colors)"));
     connect(preferencesAction, &QAction::triggered, this, &MainWindow::openPreferences);
-    settingsGroup->addAction(preferencesAction);
+
+    // --- Menu bar: File / Edit / View / Settings ---------------------------
+    QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
+    fileMenu->addAction(m_openAction);
+    fileMenu->addMenu(m_recentMenu);
+    fileMenu->addSeparator();
+    fileMenu->addAction(quitAction);
+
+    QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(pasteClipboardAction);
+    editMenu->addAction(pasteSelectionAction);
+    editMenu->addSeparator();
+    editMenu->addAction(m_findAction);
+
+    QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
+    viewMenu->addAction(increaseTextSizeAction);
+    viewMenu->addAction(decreaseTextSizeAction);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_marginsAction);
+
+    QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
+    settingsMenu->addAction(preferencesAction);
+
+    // --- Toolbar: one plain row mirroring the most-used actions -----------
+    auto *toolBar = addToolBar(tr("Main Toolbar"));
+    toolBar->setObjectName(QStringLiteral("mainToolBar"));
+    toolBar->setMovable(false);
+    toolBar->setFloatable(false);
+    toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    toolBar->setIconSize(QSize(20, 20));
+
+    toolBar->addAction(m_openAction);
+    if (auto *openButton = qobject_cast<QToolButton *>(toolBar->widgetForAction(m_openAction))) {
+        openButton->setMenu(m_recentMenu);
+        openButton->setPopupMode(QToolButton::MenuButtonPopup);
+    }
+    toolBar->addAction(pasteClipboardAction);
+    if (auto *pasteButton = qobject_cast<QToolButton *>(toolBar->widgetForAction(pasteClipboardAction))) {
+        pasteButton->setMenu(pasteMenu);
+        pasteButton->setPopupMode(QToolButton::MenuButtonPopup);
+    }
+    toolBar->addSeparator();
+
+    toolBar->addWidget(new QLabel(tr("Voice: "), toolBar));
+    m_voiceCombo = new QComboBox(toolBar);
+    m_voiceCombo->setMinimumWidth(150);
+    m_voiceCombo->setMaximumWidth(260);
+    m_voiceCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_voiceCombo->setToolTip(tr("TTS voice for this session"));
+    connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [this](const QString &voice) {
+        m_playback->setVoice(voice);
+    });
+    toolBar->addWidget(m_voiceCombo);
+
+    toolBar->addWidget(new QLabel(tr("  Speed: "), toolBar));
+    m_speedSpin = new QDoubleSpinBox(toolBar);
+    m_speedSpin->setRange(0.5, 3.0);
+    m_speedSpin->setSingleStep(0.25);
+    m_speedSpin->setDecimals(2);
+    m_speedSpin->setSuffix(tr("×"));
+    m_speedSpin->setMinimumWidth(72);
+    m_speedSpin->setToolTip(tr("Playback speed (also [ ] < > + − keys)"));
+    m_speedSpin->blockSignals(true);
+    m_speedSpin->setValue(m_options.speed);
+    m_speedSpin->blockSignals(false);
+    connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
+    toolBar->addWidget(m_speedSpin);
+
+    toolBar->addSeparator();
+    toolBar->addAction(decreaseTextSizeAction);
+    toolBar->addAction(increaseTextSizeAction);
+    toolBar->addAction(m_marginsAction);
+
+    toolBar->addSeparator();
+    toolBar->addAction(m_findAction);
+
+    toolBar->addSeparator();
+    toolBar->addAction(preferencesAction);
 
     connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
@@ -893,12 +934,9 @@ void MainWindow::setUpShortcuts()
     connect(decreaseTextSize, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
     addAction(decreaseTextSize);
 
-    // Platform standard: Ctrl+Q (Linux/Windows), Cmd+Q (macOS). Goes through
-    // closeEvent() so piper-server shutdown and socket cleanup still run.
-    auto *quitAction = new QAction(this);
-    quitAction->setShortcut(QKeySequence::Quit);
-    connect(quitAction, &QAction::triggered, this, &QWidget::close);
-    addAction(quitAction);
+    // Quit (Ctrl+Q / Cmd+Q) now lives on the File menu's Quit action, set up
+    // in setUpUi() — same shortcut, goes through closeEvent() either way so
+    // piper-server shutdown and socket cleanup still run.
 
     auto *findNextAction = new QAction(this);
     findNextAction->setShortcut(QKeySequence::FindNext); // often F3 / Ctrl+G
