@@ -26,6 +26,9 @@ struct FileConfig {
     int fontPointSize = -1; // <= 0 means "leave the widget's default size alone"
     DocumentView::Colors colors; // invalid entries = built-in theme defaults
     int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    int presentationFontPointSize = DocumentView::kPresentationFontPointSize;
+    int presentationExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    DocumentView::Colors presentationColors; // invalid → presentationDefaults()
 };
 
 QColor readColorKey(QSettings &settings, const QString &key)
@@ -89,6 +92,42 @@ FileConfig loadFileConfig()
     }
 
     settings.endGroup();
+
+    settings.beginGroup(QStringLiteral("presentation"));
+    bool presSizeOk = false;
+    const int presPs = settings.value(QStringLiteral("fontPointSize"),
+                                      DocumentView::kPresentationFontPointSize)
+                           .toInt(&presSizeOk);
+    if (presSizeOk && presPs >= 6 && presPs <= 72) {
+        config.presentationFontPointSize = presPs;
+    } else if (settings.contains(QStringLiteral("fontPointSize"))) {
+        qWarning().noquote() << "Config: invalid presentation fontPointSize value"
+                              << settings.value(QStringLiteral("fontPointSize"))
+                              << "(expected 6-72); using"
+                              << DocumentView::kPresentationFontPointSize;
+    }
+    bool presMarginOk = false;
+    const int presMargin = settings.value(QStringLiteral("extraMarginPercent"),
+                                          DocumentView::kDefaultExtraMarginPercent)
+                               .toInt(&presMarginOk);
+    if (presMarginOk && presMargin >= DocumentView::kMinExtraMarginPercent
+        && presMargin <= DocumentView::kMaxExtraMarginPercent) {
+        config.presentationExtraMarginPercent = presMargin;
+    } else if (settings.contains(QStringLiteral("extraMarginPercent"))) {
+        qWarning().noquote() << "Config: invalid presentation extraMarginPercent value"
+                              << settings.value(QStringLiteral("extraMarginPercent"))
+                              << "(expected" << DocumentView::kMinExtraMarginPercent << "-"
+                              << DocumentView::kMaxExtraMarginPercent << "); using"
+                              << DocumentView::kDefaultExtraMarginPercent;
+    }
+    config.presentationColors.text = readColorKey(settings, QStringLiteral("colorText"));
+    config.presentationColors.background = readColorKey(settings, QStringLiteral("colorBackground"));
+    config.presentationColors.playing = readColorKey(settings, QStringLiteral("colorPlaying"));
+    config.presentationColors.preparing = readColorKey(settings, QStringLiteral("colorPreparing"));
+    config.presentationColors.stopped = readColorKey(settings, QStringLiteral("colorStopped"));
+    config.presentationColors.hover = readColorKey(settings, QStringLiteral("colorHover"));
+    settings.endGroup();
+
     return config;
 }
 
@@ -180,6 +219,9 @@ int main(int argc, char *argv[])
     options.fontPointSize = fileConfig.fontPointSize; // config-file only, no CLI flag
     options.colors = fileConfig.colors; // config-file only, no CLI flag
     options.extraMarginPercent = fileConfig.extraMarginPercent; // config-file only, no CLI flag
+    options.presentationFontPointSize = fileConfig.presentationFontPointSize;
+    options.presentationExtraMarginPercent = fileConfig.presentationExtraMarginPercent;
+    options.presentationColors = fileConfig.presentationColors;
 
     const QStringList positional = parser.positionalArguments();
     if (!positional.isEmpty()) {

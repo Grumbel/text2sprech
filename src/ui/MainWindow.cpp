@@ -194,6 +194,9 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     m_documentView->setColors(m_options.colors);
     m_documentView->setExtraMarginPercent(m_options.extraMarginPercent);
     // Margins stay off until the user toggles the toolbar button (session).
+    m_presentationFontPointSize = m_options.presentationFontPointSize;
+    m_presentationExtraMarginPercent = m_options.presentationExtraMarginPercent;
+    m_presentationColors = m_options.presentationColors;
 
     m_piperClient = new PiperClient(this);
     m_playback = new PlaybackController(m_piperClient, this);
@@ -1280,6 +1283,34 @@ void MainWindow::setPlayingUi(bool playing)
     }
 }
 
+DocumentView::Colors MainWindow::resolvedPresentationColors(const DocumentView::Colors &overrides)
+{
+    const DocumentView::Colors builtins = DocumentView::presentationDefaults();
+    DocumentView::Colors c;
+    c.text = overrides.text.isValid() ? overrides.text : builtins.text;
+    c.background = overrides.background.isValid() ? overrides.background : builtins.background;
+    c.playing = overrides.playing.isValid() ? overrides.playing : builtins.playing;
+    c.preparing = overrides.preparing.isValid() ? overrides.preparing : builtins.preparing;
+    c.stopped = overrides.stopped.isValid() ? overrides.stopped : builtins.stopped;
+    c.hover = overrides.hover.isValid() ? overrides.hover : builtins.hover;
+    return c;
+}
+
+void MainWindow::applyLivePresentationAppearance()
+{
+    if (!m_documentView) {
+        return;
+    }
+    m_documentView->setColors(resolvedPresentationColors(m_presentationColors));
+    QFont presentationFont = m_presentationMode ? m_savedFont : m_documentView->baseFont();
+    const int pt = m_presentationFontPointSize > 0 ? m_presentationFontPointSize
+                                                   : DocumentView::kPresentationFontPointSize;
+    presentationFont.setPointSize(pt);
+    m_documentView->setBaseFont(presentationFont);
+    m_documentView->setExtraMarginPercent(m_presentationExtraMarginPercent);
+    m_documentView->setExtraMarginsEnabled(true);
+}
+
 void MainWindow::setPresentationMode(bool on)
 {
     if (on == m_presentationMode) {
@@ -1295,18 +1326,12 @@ void MainWindow::setPresentationMode(bool on)
         m_savedColors = m_documentView->colors();
         m_savedFont = m_documentView->baseFont();
         m_savedMarginsEnabled = m_documentView->extraMarginsEnabled();
-
-        m_documentView->setColors(DocumentView::presentationDefaults());
-        QFont presentationFont = m_savedFont;
-        presentationFont.setPointSize(qMax(m_savedFont.pointSize(),
-                                           DocumentView::kPresentationFontPointSize));
-        m_documentView->setBaseFont(presentationFont);
-        // Narrower reading column helps teleprompter-style focus.
-        m_documentView->setExtraMarginsEnabled(true);
+        m_savedMarginPercent = m_documentView->extraMarginPercent();
 
         m_presentationMode = true;
         m_presentationChromeVisible = false;
         m_documentView->setPresentationKeysEnabled(true);
+        applyLivePresentationAppearance();
 
         showFullScreen();
         applyPresentationChromeVisibility();
@@ -1322,6 +1347,7 @@ void MainWindow::setPresentationMode(bool on)
 
         m_documentView->setColors(m_savedColors);
         m_documentView->setBaseFont(m_savedFont);
+        m_documentView->setExtraMarginPercent(m_savedMarginPercent);
         m_documentView->setExtraMarginsEnabled(m_savedMarginsEnabled);
 
         if (isFullScreen()) {
@@ -1803,6 +1829,32 @@ void MainWindow::openPreferences()
     const QStringList extraVoiceDirs = settings.value(QStringLiteral("extraDirs")).toStringList();
     settings.endGroup();
 
+    PresentationDefaults presentationDefaults;
+    settings.beginGroup(QStringLiteral("presentation"));
+    bool presSizeOk = false;
+    const int presPs = settings.value(QStringLiteral("fontPointSize"),
+                                      DocumentView::kPresentationFontPointSize)
+                           .toInt(&presSizeOk);
+    presentationDefaults.fontPointSize =
+        (presSizeOk && presPs >= 6 && presPs <= 72) ? presPs
+                                                    : DocumentView::kPresentationFontPointSize;
+    bool presMarginOk = false;
+    const int presMargin = settings.value(QStringLiteral("extraMarginPercent"),
+                                          DocumentView::kDefaultExtraMarginPercent)
+                               .toInt(&presMarginOk);
+    presentationDefaults.extraMarginPercent =
+        (presMarginOk && presMargin >= DocumentView::kMinExtraMarginPercent
+         && presMargin <= DocumentView::kMaxExtraMarginPercent)
+            ? presMargin
+            : DocumentView::kDefaultExtraMarginPercent;
+    presentationDefaults.colors.text = readColor(QStringLiteral("colorText"));
+    presentationDefaults.colors.background = readColor(QStringLiteral("colorBackground"));
+    presentationDefaults.colors.playing = readColor(QStringLiteral("colorPlaying"));
+    presentationDefaults.colors.preparing = readColor(QStringLiteral("colorPreparing"));
+    presentationDefaults.colors.stopped = readColor(QStringLiteral("colorStopped"));
+    presentationDefaults.colors.hover = readColor(QStringLiteral("colorHover"));
+    settings.endGroup();
+
     QFont defaultFont;
     if (!defaultFamily.isEmpty()) {
         defaultFont.setFamily(defaultFamily);
@@ -1810,16 +1862,24 @@ void MainWindow::openPreferences()
     defaultFont.setPointSize(defaultPointSize);
 
     PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors,
-                             extraVoiceDirs, defaultExtraMarginPercent, this);
+                             extraVoiceDirs, defaultExtraMarginPercent, presentationDefaults, this);
 
     auto applyToSession = [this, &dialog] {
         if (!dialog.voice().isEmpty()) {
             m_voiceCombo->setCurrentText(dialog.voice());
         }
         m_speedSpin->setValue(dialog.speed());
-        m_documentView->setBaseFont(dialog.font());
-        m_documentView->setColors(dialog.colors());
-        m_documentView->setExtraMarginPercent(dialog.extraMarginPercent());
+        m_presentationFontPointSize = dialog.presentationFontPointSize();
+        m_presentationExtraMarginPercent = dialog.presentationExtraMarginPercent();
+        m_presentationColors = dialog.presentationColors();
+        if (m_presentationMode) {
+            // Keep presentation look in sync; don't clobber with reading colors.
+            applyLivePresentationAppearance();
+        } else {
+            m_documentView->setBaseFont(dialog.font());
+            m_documentView->setColors(dialog.colors());
+            m_documentView->setExtraMarginPercent(dialog.extraMarginPercent());
+        }
         statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
     };
     connect(&dialog, &PreferencesDialog::applyRequested, this, applyToSession);
@@ -1854,6 +1914,18 @@ void MainWindow::openPreferences()
 
     settings.beginGroup(QStringLiteral("voices"));
     settings.setValue(QStringLiteral("extraDirs"), dialog.extraVoiceDirs());
+    settings.endGroup();
+
+    const DocumentView::Colors chosenPresentationColors = dialog.presentationColors();
+    settings.beginGroup(QStringLiteral("presentation"));
+    settings.setValue(QStringLiteral("fontPointSize"), dialog.presentationFontPointSize());
+    settings.setValue(QStringLiteral("extraMarginPercent"), dialog.presentationExtraMarginPercent());
+    storeColor(QStringLiteral("colorText"), chosenPresentationColors.text);
+    storeColor(QStringLiteral("colorBackground"), chosenPresentationColors.background);
+    storeColor(QStringLiteral("colorPlaying"), chosenPresentationColors.playing);
+    storeColor(QStringLiteral("colorPreparing"), chosenPresentationColors.preparing);
+    storeColor(QStringLiteral("colorStopped"), chosenPresentationColors.stopped);
+    storeColor(QStringLiteral("colorHover"), chosenPresentationColors.hover);
     settings.endGroup();
     settings.sync();
 

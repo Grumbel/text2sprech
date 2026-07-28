@@ -127,6 +127,26 @@ written by Preferences when you pick a custom swatch; reset clears them.
 itself is session-only and does not persist. (Older configs that used
 `extraMarginSize` in pixels are ignored; set the new key in Preferences.)
 
+Presentation / teleprompter mode (View → Presentation Mode, or F11) has
+its own defaults under a separate group:
+
+```ini
+[presentation]
+fontPointSize=28
+extraMarginPercent=10
+# Optional color overrides (HexArgb); omit for built-in black/amber teleprompter palette
+# colorText=#FFF0F0F2
+# colorBackground=#FF000000
+# colorPlaying=#FFC49624
+# colorPreparing=#FF30588C
+# colorStopped=#FF343438
+# colorHover=#24FFFFFF
+```
+
+Edit these in **Preferences → Presentation mode**. Apply updates the live
+session (including an already-active presentation); Save writes the config
+for the next launch.
+
 ### Voice models (languages)
 
 Drop Piper voice files (`Name.onnx` + `Name.onnx.json`) into:

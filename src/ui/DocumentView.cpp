@@ -18,6 +18,8 @@
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QTextFrame>
+#include <QTextFrameFormat>
 #include <QUrl>
 #include <algorithm>
 
@@ -72,6 +74,9 @@ DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
 void DocumentView::loadPlainText(const QString &text)
 {
     setPlainText(text);
+    // setPlainText rebuilds the document; re-apply frame gutters so margins
+    // survive a load while the Margins toggle (or presentation mode) is on.
+    applyDocumentMargins();
 }
 
 void DocumentView::loadHtml(const QString &html)
@@ -80,6 +85,7 @@ void DocumentView::loadHtml(const QString &html)
     // called from MainWindow before this). Qt's HTML subset covers the
     // structural tags we keep; it is not a full browser engine.
     setHtml(html);
+    applyDocumentMargins();
 }
 
 void DocumentView::setBaseFont(const QFont &font)
@@ -139,18 +145,31 @@ void DocumentView::applyDocumentMargins()
     // QTextDocument::documentMargin applies the same value on all four
     // sides -- that's exactly what made "Margins" pad the text top and
     // bottom too. Keep the document's own margin at Qt's small built-in
-    // default always, and add the user-facing extra margin as left/right
-    // viewport margins instead, which QTextEdit supports independently of
-    // the document margin and only affects the horizontal gutter.
+    // default always, and put the user-facing extra gutter on the root
+    // text frame's left/right margins instead.
+    //
+    // Frame margins sit *inside* the document, so the document background
+    // (and presentation black) fills the whole viewport including the
+    // gutters. Viewport margins would leave the QTextEdit chrome showing
+    // through as a grey strip beside the text.
     //
     // Gutter width is a percent of this widget's width so the reading
     // column stays proportional when the window is resized.
     document()->setDocumentMargin(kBuiltinDocumentMargin);
+    setViewportMargins(0, 0, 0, 0);
+
     int horizontal = 0;
     if (m_extraMarginsEnabled && m_extraMarginPercent > 0) {
         horizontal = qMax(0, (width() * m_extraMarginPercent) / 100);
     }
-    setViewportMargins(horizontal, 0, horizontal, 0);
+
+    QTextFrame *root = document()->rootFrame();
+    QTextFrameFormat fmt = root->frameFormat();
+    if (fmt.leftMargin() != horizontal || fmt.rightMargin() != horizontal) {
+        fmt.setLeftMargin(horizontal);
+        fmt.setRightMargin(horizontal);
+        root->setFrameFormat(fmt);
+    }
 }
 
 void DocumentView::resizeEvent(QResizeEvent *event)
@@ -192,14 +211,18 @@ void DocumentView::applyDocumentPalette()
     }
     if (m_colors.background.isValid()) {
         pal.setColor(QPalette::Base, bg);
-        // Keep the viewport behind the text in sync when the document is short.
+        // Window fills any area outside the document (frame, short docs).
         pal.setColor(QPalette::Window, bg);
+        setAutoFillBackground(true);
+        viewport()->setAutoFillBackground(true);
     }
     if (m_colors.text.isValid() || m_colors.background.isValid()) {
         setPalette(pal);
         viewport()->setPalette(pal);
     } else {
         // Clear custom palette so we track the app/style theme again.
+        setAutoFillBackground(false);
+        viewport()->setAutoFillBackground(false);
         setPalette(QPalette());
         viewport()->setPalette(QPalette());
     }

@@ -27,6 +27,17 @@ class QToolButton;
 //    font/colors) without writing the config file or closing.
 //  - Cancel: close without saving or applying.
 //
+// Presentation-mode startup defaults (invalid colors → built-in
+// DocumentView::presentationDefaults() when applied). Defined outside
+// PreferencesDialog so it is a complete type usable as a constructor
+// default argument (nested default-member-initializers cannot be used
+// that way before the enclosing class is complete).
+struct PresentationDefaults {
+    int fontPointSize = DocumentView::kPresentationFontPointSize;
+    int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    DocumentView::Colors colors; // invalid channel → presentationDefaults()
+};
+
 // This is the *only* place in the app that writes to the config file.
 class PreferencesDialog : public QDialog {
     Q_OBJECT
@@ -40,6 +51,7 @@ public:
                        const QFont &defaultFont, const DocumentView::Colors &defaultColors,
                        const QStringList &defaultExtraVoiceDirs = {},
                        int defaultExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent,
+                       PresentationDefaults presentation = {},
                        QWidget *parent = nullptr);
 
     QString voice() const;
@@ -52,6 +64,11 @@ public:
     // Percent of DocumentView width for extra left/right margins when the
     // toolbar toggle is on.
     int extraMarginPercent() const;
+
+    // Presentation / teleprompter defaults (font size, margin %, colors).
+    int presentationFontPointSize() const;
+    int presentationExtraMarginPercent() const;
+    DocumentView::Colors presentationColors() const;
 
 signals:
     // Emitted when the user clicks Apply. Caller should push getters into
@@ -89,4 +106,13 @@ private:
     ColorRow *m_preparingColor = nullptr;
     ColorRow *m_stoppedColor = nullptr;
     ColorRow *m_hoverColor = nullptr;
+
+    QSpinBox *m_presentationFontSizeSpin = nullptr;
+    QSpinBox *m_presentationMarginSpin = nullptr;
+    ColorRow *m_presentationTextColor = nullptr;
+    ColorRow *m_presentationBackgroundColor = nullptr;
+    ColorRow *m_presentationPlayingColor = nullptr;
+    ColorRow *m_presentationPreparingColor = nullptr;
+    ColorRow *m_presentationStoppedColor = nullptr;
+    ColorRow *m_presentationHoverColor = nullptr;
 };

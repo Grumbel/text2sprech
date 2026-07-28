@@ -38,7 +38,8 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
                                       double defaultSpeed, const QFont &defaultFont,
                                       const DocumentView::Colors &defaultColors,
                                       const QStringList &defaultExtraVoiceDirs,
-                                      int defaultExtraMarginPercent, QWidget *parent)
+                                      int defaultExtraMarginPercent,
+                                      PresentationDefaults presentation, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
@@ -159,13 +160,62 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
         addColorRow(colorsForm, tr("Stopped highlight:"), defaultColors.stopped, themeDefaults.stopped);
     m_hoverColor = addColorRow(colorsForm, tr("Hover highlight:"), defaultColors.hover, themeDefaults.hover);
 
+    // --- Presentation / teleprompter ---------------------------------------
+    const DocumentView::Colors presentationBuiltins = DocumentView::presentationDefaults();
+
+    m_presentationFontSizeSpin = new QSpinBox(this);
+    m_presentationFontSizeSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_presentationFontSizeSpin->setMinimumWidth(90);
+    m_presentationFontSizeSpin->setRange(6, 72);
+    m_presentationFontSizeSpin->setSuffix(tr(" pt"));
+    m_presentationFontSizeSpin->setToolTip(
+        tr("Font size used while Presentation Mode is active (family stays "
+           "the session font)."));
+    m_presentationFontSizeSpin->setValue(
+        qBound(6, presentation.fontPointSize > 0 ? presentation.fontPointSize
+                                                 : DocumentView::kPresentationFontPointSize,
+              72));
+
+    m_presentationMarginSpin = new QSpinBox(this);
+    m_presentationMarginSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_presentationMarginSpin->setMinimumWidth(90);
+    m_presentationMarginSpin->setRange(DocumentView::kMinExtraMarginPercent,
+                                       DocumentView::kMaxExtraMarginPercent);
+    m_presentationMarginSpin->setSingleStep(1);
+    m_presentationMarginSpin->setSuffix(tr(" %"));
+    m_presentationMarginSpin->setToolTip(
+        tr("Horizontal padding on each side as a percent of the document "
+           "width while Presentation Mode is active."));
+    m_presentationMarginSpin->setValue(
+        qBound(DocumentView::kMinExtraMarginPercent, presentation.extraMarginPercent,
+              DocumentView::kMaxExtraMarginPercent));
+
+    auto *presentationGroup = new QGroupBox(tr("Presentation mode"), this);
+    auto *presentationForm = makeForm(presentationGroup);
+    presentationForm->addRow(tr("Font size:"), m_presentationFontSizeSpin);
+    presentationForm->addRow(tr("Extra text margin (each side):"), m_presentationMarginSpin);
+    m_presentationTextColor =
+        addColorRow(presentationForm, tr("Text:"), presentation.colors.text, presentationBuiltins.text);
+    m_presentationBackgroundColor = addColorRow(presentationForm, tr("Background:"),
+                                                presentation.colors.background, presentationBuiltins.background);
+    m_presentationPlayingColor = addColorRow(presentationForm, tr("Playing highlight:"),
+                                             presentation.colors.playing, presentationBuiltins.playing);
+    m_presentationPreparingColor = addColorRow(presentationForm, tr("Preparing highlight:"),
+                                               presentation.colors.preparing, presentationBuiltins.preparing);
+    m_presentationStoppedColor = addColorRow(presentationForm, tr("Stopped highlight:"),
+                                             presentation.colors.stopped, presentationBuiltins.stopped);
+    m_presentationHoverColor = addColorRow(presentationForm, tr("Hover highlight:"),
+                                           presentation.colors.hover, presentationBuiltins.hover);
+
     auto *note = new QLabel(
         tr("Save writes these as the defaults for the next time %1 starts "
            "(current session unchanged). Apply pushes voice/speed/font/colors/"
-           "margin size into the current session only — extra voice directories "
-           "always need a restart. The Margins button in the Formatting group "
-           "turns the extra text margin on or off for this session. The reset "
-           "button on each color restores the built-in theme default.")
+           "margin size and presentation settings into the current session — "
+           "extra voice directories always need a restart. The Margins button "
+           "turns the reading-mode extra margin on or off for this session. "
+           "Presentation Mode always uses its own margin while active. The "
+           "reset button on each color restores the built-in default "
+           "(theme for reading colors, teleprompter defaults for presentation).")
             .arg(QStringLiteral("text2sprech")),
         this);
     note->setWordWrap(true);
@@ -188,6 +238,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     layout->addWidget(voiceGroup);
     layout->addWidget(formatGroup);
     layout->addWidget(colorsGroup);
+    layout->addWidget(presentationGroup);
     layout->addWidget(note);
     layout->addWidget(buttons);
 
@@ -314,4 +365,30 @@ int PreferencesDialog::extraMarginPercent() const
 {
     return m_extraMarginSpin ? m_extraMarginSpin->value()
                              : DocumentView::kDefaultExtraMarginPercent;
+}
+
+int PreferencesDialog::presentationFontPointSize() const
+{
+    return m_presentationFontSizeSpin ? m_presentationFontSizeSpin->value()
+                                      : DocumentView::kPresentationFontPointSize;
+}
+
+int PreferencesDialog::presentationExtraMarginPercent() const
+{
+    return m_presentationMarginSpin ? m_presentationMarginSpin->value()
+                                    : DocumentView::kDefaultExtraMarginPercent;
+}
+
+DocumentView::Colors PreferencesDialog::presentationColors() const
+{
+    DocumentView::Colors c;
+    c.text = m_presentationTextColor ? m_presentationTextColor->value : QColor();
+    c.background =
+        m_presentationBackgroundColor ? m_presentationBackgroundColor->value : QColor();
+    c.playing = m_presentationPlayingColor ? m_presentationPlayingColor->value : QColor();
+    c.preparing =
+        m_presentationPreparingColor ? m_presentationPreparingColor->value : QColor();
+    c.stopped = m_presentationStoppedColor ? m_presentationStoppedColor->value : QColor();
+    c.hover = m_presentationHoverColor ? m_presentationHoverColor->value : QColor();
+    return c;
 }

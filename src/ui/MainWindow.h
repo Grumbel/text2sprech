@@ -49,6 +49,11 @@ public:
         // toolbar Margins toggle is on. Config-file only; the toggle itself
         // is session state.
         int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+        // Presentation / teleprompter defaults (config [presentation] group).
+        // Invalid color channels resolve to DocumentView::presentationDefaults().
+        int presentationFontPointSize = DocumentView::kPresentationFontPointSize;
+        int presentationExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+        DocumentView::Colors presentationColors;
         // At most one of these "start with X" sources is used, in this
         // priority order: pasteSelection, pasteClipboard, initialFile.
         bool pasteClipboard = false;
@@ -251,7 +256,17 @@ private:
     DocumentView::Colors m_savedColors;
     QFont m_savedFont;
     bool m_savedMarginsEnabled = false;
+    int m_savedMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    // Live presentation settings (seeded from config; Preferences can update).
+    int m_presentationFontPointSize = DocumentView::kPresentationFontPointSize;
+    int m_presentationExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
+    DocumentView::Colors m_presentationColors; // invalid → presentationDefaults()
     // True while we are programmatically leaving fullscreen so changeEvent
     // does not treat the window-state change as an external exit.
     bool m_leavingPresentation = false;
+
+    // Merge user presentation color overrides with built-in teleprompter defaults.
+    static DocumentView::Colors resolvedPresentationColors(const DocumentView::Colors &overrides);
+    // Apply current m_presentation* settings to the document view (while in mode).
+    void applyLivePresentationAppearance();
 };
