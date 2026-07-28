@@ -307,12 +307,15 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
 
     auto *buttons = new QDialogButtonBox(this);
     auto *saveBtn = buttons->addButton(QDialogButtonBox::Save);
-    auto *applyBtn = buttons->addButton(QDialogButtonBox::Apply);
-    buttons->addButton(QDialogButtonBox::Cancel);
+    auto *closeBtn = buttons->addButton(QDialogButtonBox::Close);
     saveBtn->setDefault(true);
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    // Save writes startup defaults (see saveRequested); Close only dismisses.
+    // Reject role makes Esc/Close button call reject() and leave the config alone.
+    connect(saveBtn, &QPushButton::clicked, this, &PreferencesDialog::saveRequested);
+    connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(applyBtn, &QPushButton::clicked, this, &PreferencesDialog::applyRequested);
+
+    wireLiveApply();
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 16, 16, 16);
@@ -391,12 +394,40 @@ void PreferencesDialog::pickColor(ColorRow *row)
     }
     row->value = chosen;
     updateSwatch(row);
+    emit applyRequested();
 }
 
 void PreferencesDialog::resetColor(ColorRow *row)
 {
     row->value = QColor(); // invalid => built-in theme default
     updateSwatch(row);
+    emit applyRequested();
+}
+
+
+void PreferencesDialog::wireLiveApply()
+{
+    // Session preview on every change. Voice-dir text is next-start only and
+    // is not connected here.
+    const auto apply = [this] { emit applyRequested(); };
+
+    connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [apply](const QString &) { apply(); });
+    connect(m_speedSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [apply](double) { apply(); });
+    connect(m_fontCombo, &QFontComboBox::currentFontChanged, this, [apply](const QFont &) { apply(); });
+    connect(m_fontSizeSpin, qOverload<int>(&QSpinBox::valueChanged), this, [apply](int) { apply(); });
+    connect(m_extraMarginSpin, qOverload<int>(&QSpinBox::valueChanged), this, [apply](int) { apply(); });
+    connect(m_lineSpacingSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [apply](double) { apply(); });
+
+    connect(m_presentationFontCombo, &QFontComboBox::currentFontChanged, this,
+            [apply](const QFont &) { apply(); });
+    connect(m_presentationFontSizeSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            [apply](int) { apply(); });
+    connect(m_presentationMarginSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            [apply](int) { apply(); });
+    connect(m_presentationLineSpacingSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [apply](double) { apply(); });
 }
 
 QString PreferencesDialog::voice() const

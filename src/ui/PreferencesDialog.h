@@ -18,15 +18,12 @@ class QSpinBox;
 class QTabWidget;
 class QToolButton;
 
-// Edits startup defaults (config file) and optionally applies them to the
-// live session. Seeded from the saved defaults, not the current toolbar
-// values.
+// Edits appearance and voice defaults. Seeded from the saved config, not
+// the live toolbar values.
 //
-//  - Save: write defaults to the config file and close (does not change
-//    the live session by itself).
-//  - Apply: push the dialog values into the current session (voice/speed/
-//    font/colors) without writing the config file or closing.
-//  - Cancel: close without saving or applying.
+//  - Controls auto-apply to the current session as they change.
+//  - Save: write the dialog values as startup defaults (dialog stays open).
+//  - Close: dismiss without writing the config (session keeps the preview).
 //
 // Presentation-mode startup defaults (invalid colors → built-in
 // DocumentView::presentationDefaults() when applied). Defined outside
@@ -78,11 +75,13 @@ public:
     DocumentView::Colors presentationColors() const;
 
 signals:
-    // Emitted when the user clicks Apply. Caller should push getters into
-    // the live session. The dialog stays open.
+    // Live preview: any control change. Caller pushes getters into the session.
     void applyRequested();
+    // Explicit Save: caller writes getters to the config file. Dialog stays open.
+    void saveRequested();
 
 private:
+    void wireLiveApply();
     // One color row: swatch button + reset-to-default tool button.
     // Stored color may be invalid (= use built-in default); the swatch then
     // shows the theme default for preview.

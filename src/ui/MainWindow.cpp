@@ -194,8 +194,8 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     m_documentView->setBaseFont(initialFont);
     m_documentView->setColors(m_options.colors);
     m_documentView->setExtraMarginPercent(m_options.extraMarginPercent);
+    m_documentView->setExtraMarginsEnabled(true);
     m_documentView->setLineSpacing(m_options.lineSpacing);
-    // Margins stay off until the user toggles the toolbar button (session).
     m_presentationFontFamily = m_options.presentationFontFamily;
     m_presentationFontPointSize = m_options.presentationFontPointSize;
     m_presentationExtraMarginPercent = m_options.presentationExtraMarginPercent;
@@ -307,16 +307,6 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     setWindowTitle(tr("text2sprech"));
 }
 
-void MainWindow::connectToPiperServer(const QString &socketPath)
-{
-    m_targetSocketPath = socketPath;
-    // ~6s of retries at 200ms apart -- generous enough to cover typical
-    // Python startup and voice-model loading without hanging indefinitely
-    // if something is actually wrong.
-    m_connectAttemptsLeft = 30;
-    m_piperClient->connectToServer(socketPath);
-}
-
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveCurrentPosition();
@@ -332,21 +322,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
         m_piperServerManager->stop();
     }
     QMainWindow::closeEvent(event);
-}
-
-void MainWindow::changeEvent(QEvent *event)
-{
-    QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::WindowStateChange && m_presentationMode
-        && !m_leavingPresentation && !isFullScreen()) {
-        // User left fullscreen via the window manager / OS — leave
-        // presentation mode so colors and chrome are restored.
-        if (m_presentationAction) {
-            QSignalBlocker blocker(m_presentationAction);
-            m_presentationAction->setChecked(false);
-        }
-        setPresentationMode(false);
-    }
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
@@ -371,6 +346,24 @@ void MainWindow::dropEvent(QDropEvent *event)
     }
     event->ignore();
 }
+
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() != QEvent::WindowStateChange) {
+        return;
+    }
+    // User left fullscreen via window manager (not our Exit action).
+    if (!isFullScreen() && m_presentationMode && !m_leavingPresentation) {
+        if (m_presentationAction) {
+            QSignalBlocker blocker(m_presentationAction);
+            m_presentationAction->setChecked(false);
+        }
+        setPresentationMode(false);
+    }
+}
+
 
 void MainWindow::setUpUi()
 {
@@ -484,26 +477,6 @@ void MainWindow::setUpUi()
         p.end();
         return QIcon(pm);
     };
-    auto paintMarginsIcon = []() {
-        // Page with side margin guides — reads as "narrow column / margins".
-        QPixmap pm(64, 64);
-        pm.fill(Qt::transparent);
-        QPainter p(&pm);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(QColor(40, 40, 40), 3));
-        p.setBrush(QColor(245, 245, 245));
-        p.drawRoundedRect(14, 6, 36, 52, 3, 3);
-        p.setPen(QPen(QColor(40, 40, 40), 2, Qt::DashLine));
-        p.drawLine(22, 12, 22, 52);
-        p.drawLine(42, 12, 42, 52);
-        p.setPen(QPen(QColor(40, 40, 40), 3));
-        p.drawLine(26, 20, 38, 20);
-        p.drawLine(26, 28, 38, 28);
-        p.drawLine(26, 36, 34, 36);
-        p.end();
-        return QIcon(pm);
-    };
-
     auto paintCopyIcon = []() {
         // Two overlapping sheets -- the standard "copy" metaphor, used as
         // a fallback when the icon theme doesn't ship edit-copy.
@@ -585,25 +558,10 @@ void MainWindow::setUpUi()
             paintTextSizeIcon(true)),
         tr("&Increase Text Size"), this);
     increaseTextSizeAction->setToolTip(tr("Increase text size (Ctrl++)"));
-    increaseTextSizeAction->setShortcut(QKeySequence::ZoomIn);
+    increaseTextSizeAction->setShortcuts(
+        {QKeySequence::ZoomIn, QKeySequence(Qt::CTRL | Qt::Key_Equal)});
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
 
-    // format-indent-more is the closest standard "text editor" icon for
-    // margin/indent guides; several icon themes also ship object-columns
-    // or view-paged, which read just as well for this.
-    m_marginsAction = new QAction(
-        themedOrPainted(
-            {QStringLiteral("format-indent-more"), QStringLiteral("object-columns"),
-             QStringLiteral("view-paged"), QStringLiteral("format-justify-center")},
-            paintMarginsIcon()),
-        tr("&Margins"), this);
-    m_marginsAction->setCheckable(true);
-    m_marginsAction->setChecked(false);
-    m_marginsAction->setToolTip(
-        tr("Extra horizontal padding as a percent of view width (set in Preferences)"));
-    connect(m_marginsAction, &QAction::toggled, m_documentView, &DocumentView::setExtraMarginsEnabled);
-
-    // --- Presentation / fullscreen --------------------------------------
     m_presentationAction = new QAction(
         themedOrPainted(
             {QStringLiteral("view-fullscreen"), QStringLiteral("view-fullscreen-symbolic")},
@@ -684,8 +642,6 @@ void MainWindow::setUpUi()
     viewMenu->addAction(increaseTextSizeAction);
     viewMenu->addAction(decreaseTextSizeAction);
     viewMenu->addSeparator();
-    viewMenu->addAction(m_marginsAction);
-    viewMenu->addSeparator();
     viewMenu->addAction(m_presentationAction);
 
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
@@ -740,14 +696,18 @@ void MainWindow::setUpUi()
     m_toolBar->addSeparator();
     m_toolBar->addAction(decreaseTextSizeAction);
     m_toolBar->addAction(increaseTextSizeAction);
-    m_toolBar->addAction(m_marginsAction);
-    m_toolBar->addAction(m_presentationAction);
 
     m_toolBar->addSeparator();
     m_toolBar->addAction(m_findAction);
 
     m_toolBar->addSeparator();
     m_toolBar->addAction(preferencesAction);
+
+    // Push presentation/fullscreen to the far right of the toolbar.
+    auto *toolBarSpacer = new QWidget(m_toolBar);
+    toolBarSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_toolBar->addWidget(toolBarSpacer);
+    m_toolBar->addAction(m_presentationAction);
 
     connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
@@ -999,6 +959,17 @@ void MainWindow::setUpUi()
     showWelcomeMessage();
 }
 
+
+void MainWindow::connectToPiperServer(const QString &socketPath)
+{
+    m_targetSocketPath = socketPath;
+    // ~6s of retries at 200ms apart -- generous enough to cover typical
+    // Python startup and voice-model loading without hanging indefinitely
+    // if something is actually wrong.
+    m_connectAttemptsLeft = 30;
+    m_piperClient->connectToServer(socketPath);
+}
+
 void MainWindow::setUpShortcuts()
 {
     auto *playPause = new QAction(this);
@@ -1006,28 +977,22 @@ void MainWindow::setUpShortcuts()
     connect(playPause, &QAction::triggered, this, &MainWindow::togglePlayPause);
     addAction(playPause);
 
-    // Speed: + / ] / > faster; − / [ / < slower (mpv bracket + YouTube angle keys).
+    // Speed: ] / > faster; [ / < slower (mpv brackets + YouTube angle keys).
+    // Bare + / − are not bound here — they collide with Ctrl++ / Ctrl+− zoom
+    // (ZoomIn/ZoomOut) as ambiguous overloads on some layouts.
     auto *speedUp = new QAction(this);
-    speedUp->setShortcuts({Qt::Key_Plus, Qt::Key_BracketRight, Qt::Key_Greater});
+    speedUp->setShortcuts({Qt::Key_BracketRight, Qt::Key_Greater});
     connect(speedUp, &QAction::triggered, this, [this] { m_speedSpin->stepUp(); });
     addAction(speedUp);
 
     auto *speedDown = new QAction(this);
-    speedDown->setShortcuts({Qt::Key_Minus, Qt::Key_BracketLeft, Qt::Key_Less});
+    speedDown->setShortcuts({Qt::Key_BracketLeft, Qt::Key_Less});
     connect(speedDown, &QAction::triggered, this, [this] { m_speedSpin->stepDown(); });
     addAction(speedDown);
 
-    auto *increaseTextSize = new QAction(this);
-    // ZoomIn is typically Ctrl++; also bind Ctrl+= so layouts where + is
-    // Shift+= don't require the extra modifier.
-    increaseTextSize->setShortcuts({QKeySequence::ZoomIn, QKeySequence(Qt::CTRL | Qt::Key_Equal)});
-    connect(increaseTextSize, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
-    addAction(increaseTextSize);
-
-    auto *decreaseTextSize = new QAction(this);
-    decreaseTextSize->setShortcut(QKeySequence::ZoomOut);
-    connect(decreaseTextSize, &QAction::triggered, m_documentView, &DocumentView::decreaseTextSize);
-    addAction(decreaseTextSize);
+    // Text zoom shortcuts live only on the View menu / toolbar actions
+    // (ZoomIn / ZoomOut / Ctrl+=). A second pair here caused
+    // "Ambiguous shortcut overload: Ctrl++ / Ctrl+-".
 
     // Quit (Ctrl+Q / Cmd+Q) now lives on the File menu's Quit action, set up
     // in setUpUi() — same shortcut, goes through closeEvent() either way so
@@ -1164,8 +1129,8 @@ void MainWindow::showWelcomeMessage()
                 "to jump. Previous / Next on the transport bar do the same. "
                 "<b>Find</b> (Ctrl+F) searches within the document."),
              tr("Choose <b>Voice</b> and <b>Speed</b> in the Voice group for this session. "
-                "<b>Preferences</b> sets defaults for the next launch (and can Apply "
-                "them now)."),
+                "<b>Preferences</b> previews changes live; Save writes them as "
+                "startup defaults."),
              tr("Playback controls sit at the bottom: previous, play/pause, stop, next."),
              tr("Speech stays on your machine via Piper — nothing is sent to the cloud."));
 
@@ -1353,7 +1318,6 @@ void MainWindow::setPresentationMode(bool on)
     if (on) {
         m_savedColors = m_documentView->colors();
         m_savedFont = m_documentView->baseFont();
-        m_savedMarginsEnabled = m_documentView->extraMarginsEnabled();
         m_savedMarginPercent = m_documentView->extraMarginPercent();
         m_savedLineSpacing = m_documentView->lineSpacing();
 
@@ -1389,7 +1353,7 @@ void MainWindow::setPresentationMode(bool on)
         m_documentView->setColors(m_savedColors);
         m_documentView->setBaseFont(m_savedFont);
         m_documentView->setExtraMarginPercent(m_savedMarginPercent);
-        m_documentView->setExtraMarginsEnabled(m_savedMarginsEnabled);
+        m_documentView->setExtraMarginsEnabled(true);
         m_documentView->setLineSpacing(m_savedLineSpacing);
 
         if (isFullScreen()) {
@@ -1949,60 +1913,62 @@ void MainWindow::openPreferences()
             m_documentView->setExtraMarginPercent(dialog.extraMarginPercent());
             m_documentView->setLineSpacing(dialog.lineSpacing());
         }
-        statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
     };
     connect(&dialog, &PreferencesDialog::applyRequested, this, applyToSession);
 
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
+    auto saveToConfig = [this, &dialog, &settings] {
+        const QFont chosenFont = dialog.font();
+        const DocumentView::Colors chosenColors = dialog.colors();
+        auto storeColor = [&settings](const QString &key, const QColor &c) {
+            if (c.isValid()) {
+                settings.setValue(key, c.name(QColor::HexArgb));
+            } else {
+                settings.remove(key);
+            }
+        };
 
-    const QFont chosenFont = dialog.font();
-    const DocumentView::Colors chosenColors = dialog.colors();
-    auto storeColor = [&settings](const QString &key, const QColor &c) {
-        if (c.isValid()) {
-            settings.setValue(key, c.name(QColor::HexArgb));
-        } else {
-            settings.remove(key);
-        }
+        settings.beginGroup(QStringLiteral("startup"));
+        settings.setValue(QStringLiteral("voice"), dialog.voice());
+        settings.setValue(QStringLiteral("speed"), dialog.speed());
+        settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
+        settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
+        settings.setValue(QStringLiteral("extraMarginPercent"), dialog.extraMarginPercent());
+        settings.setValue(QStringLiteral("lineSpacing"), dialog.lineSpacing());
+        storeColor(QStringLiteral("colorText"), chosenColors.text);
+        storeColor(QStringLiteral("colorBackground"), chosenColors.background);
+        storeColor(QStringLiteral("colorPlaying"), chosenColors.playing);
+        storeColor(QStringLiteral("colorPreparing"), chosenColors.preparing);
+        storeColor(QStringLiteral("colorStopped"), chosenColors.stopped);
+        storeColor(QStringLiteral("colorHover"), chosenColors.hover);
+        settings.endGroup();
+
+        settings.beginGroup(QStringLiteral("voices"));
+        settings.setValue(QStringLiteral("extraDirs"), dialog.extraVoiceDirs());
+        settings.endGroup();
+
+        const DocumentView::Colors chosenPresentationColors = dialog.presentationColors();
+        settings.beginGroup(QStringLiteral("presentation"));
+        settings.setValue(QStringLiteral("fontFamily"), dialog.presentationFont().family());
+        settings.setValue(QStringLiteral("fontPointSize"), dialog.presentationFontPointSize());
+        settings.setValue(QStringLiteral("extraMarginPercent"), dialog.presentationExtraMarginPercent());
+        settings.setValue(QStringLiteral("lineSpacing"), dialog.presentationLineSpacing());
+        storeColor(QStringLiteral("colorText"), chosenPresentationColors.text);
+        storeColor(QStringLiteral("colorBackground"), chosenPresentationColors.background);
+        storeColor(QStringLiteral("colorPlaying"), chosenPresentationColors.playing);
+        storeColor(QStringLiteral("colorPreparing"), chosenPresentationColors.preparing);
+        storeColor(QStringLiteral("colorStopped"), chosenPresentationColors.stopped);
+        storeColor(QStringLiteral("colorHover"), chosenPresentationColors.hover);
+        settings.endGroup();
+        settings.sync();
+
+        statusBar()->showMessage(
+            tr("Preferences saved (voice directories apply on next start)"), 4000);
     };
+    connect(&dialog, &PreferencesDialog::saveRequested, this, saveToConfig);
 
-    settings.beginGroup(QStringLiteral("startup"));
-    settings.setValue(QStringLiteral("voice"), dialog.voice());
-    settings.setValue(QStringLiteral("speed"), dialog.speed());
-    settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
-    settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
-    settings.setValue(QStringLiteral("extraMarginPercent"), dialog.extraMarginPercent());
-    settings.setValue(QStringLiteral("lineSpacing"), dialog.lineSpacing());
-    storeColor(QStringLiteral("colorText"), chosenColors.text);
-    storeColor(QStringLiteral("colorBackground"), chosenColors.background);
-    storeColor(QStringLiteral("colorPlaying"), chosenColors.playing);
-    storeColor(QStringLiteral("colorPreparing"), chosenColors.preparing);
-    storeColor(QStringLiteral("colorStopped"), chosenColors.stopped);
-    storeColor(QStringLiteral("colorHover"), chosenColors.hover);
-    settings.endGroup();
-
-    settings.beginGroup(QStringLiteral("voices"));
-    settings.setValue(QStringLiteral("extraDirs"), dialog.extraVoiceDirs());
-    settings.endGroup();
-
-    const DocumentView::Colors chosenPresentationColors = dialog.presentationColors();
-    settings.beginGroup(QStringLiteral("presentation"));
-    settings.setValue(QStringLiteral("fontFamily"), dialog.presentationFont().family());
-    settings.setValue(QStringLiteral("fontPointSize"), dialog.presentationFontPointSize());
-    settings.setValue(QStringLiteral("extraMarginPercent"), dialog.presentationExtraMarginPercent());
-    settings.setValue(QStringLiteral("lineSpacing"), dialog.presentationLineSpacing());
-    storeColor(QStringLiteral("colorText"), chosenPresentationColors.text);
-    storeColor(QStringLiteral("colorBackground"), chosenPresentationColors.background);
-    storeColor(QStringLiteral("colorPlaying"), chosenPresentationColors.playing);
-    storeColor(QStringLiteral("colorPreparing"), chosenPresentationColors.preparing);
-    storeColor(QStringLiteral("colorStopped"), chosenPresentationColors.stopped);
-    storeColor(QStringLiteral("colorHover"), chosenPresentationColors.hover);
-    settings.endGroup();
-    settings.sync();
-
-    statusBar()->showMessage(
-        tr("Preferences saved (voice directories apply on next start)"), 4000);
+    // Close only dismisses; session already reflects live preview. Config is
+    // written only when the user clicks Save.
+    dialog.exec();
 }
 
 void MainWindow::openAbout()

@@ -204,7 +204,6 @@ private:
     QComboBox *m_voiceCombo;
     QDoubleSpinBox *m_speedSpin;
     QAction *m_playPauseAction;
-    QAction *m_marginsAction = nullptr; // checkable session toggle for extra text margins
     QAction *m_findAction = nullptr;    // checkable toggle for the find bar
     QAction *m_presentationAction = nullptr; // checkable: presentation / fullscreen
     QShortcut *m_presentationTabShortcut = nullptr; // Tab toggles chrome (any focus)
@@ -261,7 +260,6 @@ private:
     bool m_presentationChromeVisible = false;
     DocumentView::Colors m_savedColors;
     QFont m_savedFont;
-    bool m_savedMarginsEnabled = false;
     int m_savedMarginPercent = DocumentView::kDefaultExtraMarginPercent;
     double m_savedLineSpacing = DocumentView::kDefaultLineSpacing;
     // Live presentation settings (seeded from config; Preferences can update).
