@@ -13,6 +13,7 @@
 #include <QDoubleSpinBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -25,6 +26,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
+#include <QContextMenuEvent>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QSizePolicy>
@@ -325,6 +327,21 @@ void MainWindow::closeEvent(QCloseEvent *event)
     QMainWindow::closeEvent(event);
 }
 
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange && m_presentationMode
+        && !m_leavingPresentation && !isFullScreen()) {
+        // User left fullscreen via the window manager / OS — leave
+        // presentation mode so colors and chrome are restored.
+        if (m_presentationAction) {
+            QSignalBlocker blocker(m_presentationAction);
+            m_presentationAction->setChecked(false);
+        }
+        setPresentationMode(false);
+    }
+}
+
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
     if (event->mimeData() && event->mimeData()->hasUrls()) {
@@ -579,6 +596,21 @@ void MainWindow::setUpUi()
         tr("Extra horizontal padding as a percent of view width (set in Preferences)"));
     connect(m_marginsAction, &QAction::toggled, m_documentView, &DocumentView::setExtraMarginsEnabled);
 
+    // --- Presentation / fullscreen --------------------------------------
+    m_presentationAction = new QAction(
+        themedOrPainted(
+            {QStringLiteral("view-fullscreen"), QStringLiteral("view-fullscreen-symbolic")},
+            style()->standardIcon(QStyle::SP_TitleBarMaxButton)),
+        tr("&Presentation Mode"), this);
+    m_presentationAction->setCheckable(true);
+    m_presentationAction->setChecked(false);
+    m_presentationAction->setToolTip(
+        tr("Fullscreen teleprompter view (F11). Tab shows or hides controls; "
+           "Esc exits."));
+    m_presentationAction->setShortcut(Qt::Key_F11);
+    connect(m_presentationAction, &QAction::toggled, this, &MainWindow::setPresentationMode);
+    addAction(m_presentationAction);
+
     // --- Find toggle ----------------------------------------------------
     m_findAction = new QAction(
         themeIcon(QStringLiteral("edit-find"), style()->standardIcon(QStyle::SP_FileDialogContentsView)),
@@ -629,6 +661,8 @@ void MainWindow::setUpUi()
     viewMenu->addAction(decreaseTextSizeAction);
     viewMenu->addSeparator();
     viewMenu->addAction(m_marginsAction);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_presentationAction);
 
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
     settingsMenu->addAction(preferencesAction);
@@ -638,24 +672,24 @@ void MainWindow::setUpUi()
     helpMenu->addAction(aboutQtAction);
 
     // --- Toolbar: one plain row mirroring the most-used actions -----------
-    auto *toolBar = addToolBar(tr("Main Toolbar"));
-    toolBar->setObjectName(QStringLiteral("mainToolBar"));
-    toolBar->setMovable(false);
-    toolBar->setFloatable(false);
-    toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    toolBar->setIconSize(QSize(20, 20));
+    m_toolBar = addToolBar(tr("Main Toolbar"));
+    m_toolBar->setObjectName(QStringLiteral("mainToolBar"));
+    m_toolBar->setMovable(false);
+    m_toolBar->setFloatable(false);
+    m_toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_toolBar->setIconSize(QSize(20, 20));
 
-    toolBar->addAction(m_openAction);
-    if (auto *openButton = qobject_cast<QToolButton *>(toolBar->widgetForAction(m_openAction))) {
+    m_toolBar->addAction(m_openAction);
+    if (auto *openButton = qobject_cast<QToolButton *>(m_toolBar->widgetForAction(m_openAction))) {
         openButton->setMenu(m_recentMenu);
         openButton->setPopupMode(QToolButton::MenuButtonPopup);
     }
-    toolBar->addAction(copyAction);
-    toolBar->addAction(pasteClipboardAction);
-    toolBar->addSeparator();
+    m_toolBar->addAction(copyAction);
+    m_toolBar->addAction(pasteClipboardAction);
+    m_toolBar->addSeparator();
 
-    toolBar->addWidget(new QLabel(tr("Voice: "), toolBar));
-    m_voiceCombo = new QComboBox(toolBar);
+    m_toolBar->addWidget(new QLabel(tr("Voice: "), m_toolBar));
+    m_voiceCombo = new QComboBox(m_toolBar);
     m_voiceCombo->setMinimumWidth(150);
     m_voiceCombo->setMaximumWidth(260);
     m_voiceCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
@@ -663,10 +697,10 @@ void MainWindow::setUpUi()
     connect(m_voiceCombo, &QComboBox::currentTextChanged, this, [this](const QString &voice) {
         m_playback->setVoice(voice);
     });
-    toolBar->addWidget(m_voiceCombo);
+    m_toolBar->addWidget(m_voiceCombo);
 
-    toolBar->addWidget(new QLabel(tr("  Speed: "), toolBar));
-    m_speedSpin = new QDoubleSpinBox(toolBar);
+    m_toolBar->addWidget(new QLabel(tr("  Speed: "), m_toolBar));
+    m_speedSpin = new QDoubleSpinBox(m_toolBar);
     m_speedSpin->setRange(0.5, 3.0);
     m_speedSpin->setSingleStep(0.25);
     m_speedSpin->setDecimals(2);
@@ -677,18 +711,19 @@ void MainWindow::setUpUi()
     m_speedSpin->setValue(m_options.speed);
     m_speedSpin->blockSignals(false);
     connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
-    toolBar->addWidget(m_speedSpin);
+    m_toolBar->addWidget(m_speedSpin);
 
-    toolBar->addSeparator();
-    toolBar->addAction(decreaseTextSizeAction);
-    toolBar->addAction(increaseTextSizeAction);
-    toolBar->addAction(m_marginsAction);
+    m_toolBar->addSeparator();
+    m_toolBar->addAction(decreaseTextSizeAction);
+    m_toolBar->addAction(increaseTextSizeAction);
+    m_toolBar->addAction(m_marginsAction);
+    m_toolBar->addAction(m_presentationAction);
 
-    toolBar->addSeparator();
-    toolBar->addAction(m_findAction);
+    m_toolBar->addSeparator();
+    m_toolBar->addAction(m_findAction);
 
-    toolBar->addSeparator();
-    toolBar->addAction(preferencesAction);
+    m_toolBar->addSeparator();
+    m_toolBar->addAction(preferencesAction);
 
     connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
@@ -699,20 +734,31 @@ void MainWindow::setUpUi()
     connect(m_documentView, &DocumentView::pasteRequested, this, [this](QClipboard::Mode mode) {
         pasteFromSource(mode);
     });
+    connect(m_documentView, &DocumentView::presentationChromeToggleRequested, this,
+            &MainWindow::togglePresentationChrome);
+    connect(m_documentView, &DocumentView::presentationExitRequested, this, [this] {
+        if (m_presentationMode) {
+            m_presentationAction->setChecked(false); // routes through setPresentationMode(false)
+        }
+    });
+    m_documentView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_documentView, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        showDocumentContextMenu(m_documentView->mapToGlobal(pos));
+    });
 
     // --- Bottom player bar -------------------------------------------------
     // Layout matches the reference chrome:
     //   [elapsed] ———— progress slider ———— [−remaining] [N / M]
     //              Previous   Play   Stop   Next   (icons + labels)
     // Status bar (below): ● Ready
-    auto *playerBar = new QWidget(central);
-    playerBar->setObjectName(QStringLiteral("playerBar"));
-    auto *playerColumn = new QVBoxLayout(playerBar);
+    m_playerBar = new QWidget(central);
+    m_playerBar->setObjectName(QStringLiteral("playerBar"));
+    auto *playerColumn = new QVBoxLayout(m_playerBar);
     playerColumn->setContentsMargins(12, 8, 12, 4);
     playerColumn->setSpacing(4);
 
     // Progress row: times + seek track + sentence counter on one line.
-    auto *progressRow = new QWidget(playerBar);
+    auto *progressRow = new QWidget(m_playerBar);
     auto *progressLayout = new QHBoxLayout(progressRow);
     progressLayout->setContentsMargins(0, 0, 0, 0);
     progressLayout->setSpacing(10);
@@ -775,7 +821,7 @@ void MainWindow::setUpUi()
     playerColumn->addWidget(progressRow);
 
     // Transport row: icon-only Previous / Play / Stop / Next, truly centered.
-    auto *transportRow = new QWidget(playerBar);
+    auto *transportRow = new QWidget(m_playerBar);
     auto *transportOuter = new QHBoxLayout(transportRow);
     transportOuter->setContentsMargins(0, 4, 0, 2);
     transportOuter->setSpacing(0);
@@ -904,7 +950,7 @@ void MainWindow::setUpUi()
     transportOuter->addWidget(rightSide, /*stretch=*/1);
 
     playerColumn->addWidget(transportRow);
-    centralLayout->addWidget(playerBar);
+    centralLayout->addWidget(m_playerBar);
     setCentralWidget(central);
 
     // Status bar: green (or state-colored) dot + activity text, matching the
@@ -1232,6 +1278,169 @@ void MainWindow::setPlayingUi(bool playing)
         m_playPauseAction->setText(tr("Play"));
         m_playPauseAction->setToolTip(tr("Play (Space)"));
     }
+}
+
+void MainWindow::setPresentationMode(bool on)
+{
+    if (on == m_presentationMode) {
+        // Still sync chrome if re-entering with the same flag (e.g. action
+        // re-checked after an external fullscreen exit already cleaned up).
+        if (on) {
+            applyPresentationChromeVisibility();
+        }
+        return;
+    }
+
+    if (on) {
+        m_savedColors = m_documentView->colors();
+        m_savedFont = m_documentView->baseFont();
+        m_savedMarginsEnabled = m_documentView->extraMarginsEnabled();
+
+        m_documentView->setColors(DocumentView::presentationDefaults());
+        QFont presentationFont = m_savedFont;
+        presentationFont.setPointSize(qMax(m_savedFont.pointSize(),
+                                           DocumentView::kPresentationFontPointSize));
+        m_documentView->setBaseFont(presentationFont);
+        // Narrower reading column helps teleprompter-style focus.
+        m_documentView->setExtraMarginsEnabled(true);
+
+        m_presentationMode = true;
+        m_presentationChromeVisible = false;
+        m_documentView->setPresentationKeysEnabled(true);
+
+        showFullScreen();
+        applyPresentationChromeVisibility();
+        updatePresentationActionIcon();
+        m_documentView->setFocus(Qt::OtherFocusReason);
+        statusBar()->showMessage(
+            tr("Presentation mode — Tab: controls · Esc: exit · F11: toggle"), 5000);
+    } else {
+        m_leavingPresentation = true;
+        m_presentationMode = false;
+        m_presentationChromeVisible = false;
+        m_documentView->setPresentationKeysEnabled(false);
+
+        m_documentView->setColors(m_savedColors);
+        m_documentView->setBaseFont(m_savedFont);
+        m_documentView->setExtraMarginsEnabled(m_savedMarginsEnabled);
+
+        if (isFullScreen()) {
+            showNormal();
+        }
+        applyPresentationChromeVisibility();
+        updatePresentationActionIcon();
+        m_leavingPresentation = false;
+        statusBar()->showMessage(tr("Left presentation mode"), 2500);
+    }
+}
+
+void MainWindow::applyPresentationChromeVisibility()
+{
+    const bool showChrome = !m_presentationMode || m_presentationChromeVisible;
+
+    if (menuBar()) {
+        menuBar()->setVisible(showChrome);
+    }
+    if (m_toolBar) {
+        m_toolBar->setVisible(showChrome);
+    }
+    if (m_playerBar) {
+        m_playerBar->setVisible(showChrome);
+    }
+    if (statusBar()) {
+        statusBar()->setVisible(showChrome);
+    }
+    // Warning / find stay hidden in presentation unless chrome is up, and
+    // find stays hidden unless the user opened it.
+    if (m_warningBanner) {
+        const bool hasWarning = !m_warningBanner->text().isEmpty();
+        m_warningBanner->setVisible(showChrome && hasWarning);
+    }
+    if (m_findBar && !showChrome) {
+        m_findBar->setVisible(false);
+        if (m_findAction && m_findAction->isChecked()) {
+            QSignalBlocker blocker(m_findAction);
+            m_findAction->setChecked(false);
+        }
+    }
+}
+
+void MainWindow::togglePresentationChrome()
+{
+    if (!m_presentationMode) {
+        return;
+    }
+    m_presentationChromeVisible = !m_presentationChromeVisible;
+    applyPresentationChromeVisibility();
+    if (m_presentationChromeVisible) {
+        statusBar()->showMessage(tr("Controls visible — Tab to hide again"), 3000);
+    } else {
+        m_documentView->setFocus(Qt::OtherFocusReason);
+    }
+}
+
+void MainWindow::updatePresentationActionIcon()
+{
+    if (!m_presentationAction) {
+        return;
+    }
+    const QIcon fullscreenIcon = QIcon::fromTheme(QStringLiteral("view-fullscreen"));
+    const QIcon restoreIcon = QIcon::fromTheme(QStringLiteral("view-restore"));
+    if (m_presentationMode) {
+        m_presentationAction->setIcon(
+            restoreIcon.isNull()
+                ? (fullscreenIcon.isNull() ? style()->standardIcon(QStyle::SP_TitleBarNormalButton)
+                                           : fullscreenIcon)
+                : restoreIcon);
+        m_presentationAction->setText(tr("Exit &Presentation Mode"));
+        m_presentationAction->setToolTip(
+            tr("Leave presentation mode (F11 or Esc)"));
+    } else {
+        m_presentationAction->setIcon(
+            fullscreenIcon.isNull() ? style()->standardIcon(QStyle::SP_TitleBarMaxButton)
+                                     : fullscreenIcon);
+        m_presentationAction->setText(tr("&Presentation Mode"));
+        m_presentationAction->setToolTip(
+            tr("Fullscreen teleprompter view (F11). Tab shows or hides controls; "
+               "Esc exits."));
+    }
+}
+
+void MainWindow::showDocumentContextMenu(const QPoint &globalPos)
+{
+    QMenu menu(this);
+
+    auto *copyAct = menu.addAction(tr("&Copy"));
+    copyAct->setEnabled(m_documentView->textCursor().hasSelection());
+    connect(copyAct, &QAction::triggered, m_documentView, &DocumentView::copy);
+
+    menu.addSeparator();
+
+    if (m_playPauseAction) {
+        menu.addAction(m_playPauseAction);
+    }
+
+    menu.addSeparator();
+
+    if (m_presentationMode) {
+        auto *chromeAct = menu.addAction(m_presentationChromeVisible
+                                             ? tr("Hide &Controls")
+                                             : tr("Show &Controls"));
+        connect(chromeAct, &QAction::triggered, this, &MainWindow::togglePresentationChrome);
+
+        auto *exitAct = menu.addAction(tr("Exit &Presentation Mode"));
+        connect(exitAct, &QAction::triggered, this, [this] {
+            if (m_presentationAction) {
+                m_presentationAction->setChecked(false);
+            }
+        });
+    } else {
+        if (m_presentationAction) {
+            menu.addAction(m_presentationAction);
+        }
+    }
+
+    menu.exec(globalPos);
 }
 
 void MainWindow::onSentenceStarted(int sentenceId, int start, int end)

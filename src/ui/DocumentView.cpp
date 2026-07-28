@@ -42,6 +42,20 @@ DocumentView::Colors DocumentView::builtinDefaults(bool darkTheme)
     return c;
 }
 
+DocumentView::Colors DocumentView::presentationDefaults()
+{
+    // Teleprompter / stage-read look: pure black field, near-white text,
+    // amber active highlight (reads well under dim room lights).
+    Colors c;
+    c.text = QColor(240, 240, 242);
+    c.background = QColor(0, 0, 0);
+    c.playing = QColor(196, 150, 36);      // amber
+    c.preparing = QColor(48, 88, 140);     // muted blue while synthesizing
+    c.stopped = QColor(52, 52, 56);        // dim slate when paused/selected
+    c.hover = QColor(255, 255, 255, 36);   // subtle wash
+    return c;
+}
+
 DocumentView::DocumentView(QWidget *parent) : QTextEdit(parent)
 {
     setReadOnly(true);
@@ -481,6 +495,11 @@ void DocumentView::leaveEvent(QEvent *event)
     QTextEdit::leaveEvent(event);
 }
 
+void DocumentView::setPresentationKeysEnabled(bool enabled)
+{
+    m_presentationKeysEnabled = enabled;
+}
+
 void DocumentView::keyPressEvent(QKeyEvent *event)
 {
     // Must intercept here, before QTextEdit::keyPressEvent(): plain arrow
@@ -497,6 +516,16 @@ void DocumentView::keyPressEvent(QKeyEvent *event)
         }
         if (event->key() == Qt::Key_Right) {
             emit nextSentenceRequested();
+            event->accept();
+            return;
+        }
+        if (m_presentationKeysEnabled && event->key() == Qt::Key_Tab) {
+            emit presentationChromeToggleRequested();
+            event->accept();
+            return;
+        }
+        if (m_presentationKeysEnabled && event->key() == Qt::Key_Escape) {
+            emit presentationExitRequested();
             event->accept();
             return;
         }

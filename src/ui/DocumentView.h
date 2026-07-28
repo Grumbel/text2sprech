@@ -62,6 +62,15 @@ public:
     // resolve to these).
     static Colors builtinDefaults(bool darkTheme);
 
+    // Teleprompter-style defaults for presentation / fullscreen mode
+    // (black background, light text, high-contrast highlights). Always
+    // fully valid colors — not theme-dependent.
+    static Colors presentationDefaults();
+
+    // Default point size used when entering presentation mode (family is
+    // kept from the current session font).
+    static constexpr int kPresentationFontPointSize = 28;
+
     explicit DocumentView(QWidget *parent = nullptr);
 
     void loadPlainText(const QString &text);
@@ -153,6 +162,16 @@ signals:
     // Local file(s) dropped onto the view -- MainWindow opens the first
     // usable text/HTML path.
     void filesDropped(const QList<QUrl> &urls);
+    // Presentation mode: Tab toggles chrome; Escape exits (handled in
+    // keyPressEvent when presentationKeysEnabled is true).
+    void presentationChromeToggleRequested();
+    void presentationExitRequested();
+
+public:
+    // When true, Tab and Escape are captured for presentation chrome /
+    // exit instead of default QTextEdit behavior.
+    void setPresentationKeysEnabled(bool enabled);
+    bool presentationKeysEnabled() const { return m_presentationKeysEnabled; }
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -203,4 +222,5 @@ private:
 
     bool m_extraMarginsEnabled = false;
     int m_extraMarginPercent = kDefaultExtraMarginPercent;
+    bool m_presentationKeysEnabled = false;
 };

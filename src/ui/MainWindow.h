@@ -20,10 +20,12 @@ class QAction;
 class QCloseEvent;
 class QDragEnterEvent;
 class QDropEvent;
+class QEvent;
 class QLabel;
 class QLineEdit;
 class QMenu;
 class QSlider;
+class QToolBar;
 class QToolButton;
 class QWidget;
 
@@ -67,6 +69,7 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private slots:
     void openFile();
@@ -170,6 +173,16 @@ private:
     // Accept local file URLs from a drop (window or document view).
     void openDroppedUrls(const QList<QUrl> &urls);
 
+    // --- Presentation / teleprompter mode ------------------------------------
+    // Fullscreen document with presentation colors + larger font; chrome
+    // (menu, toolbar, player, status) is hidden. Tab or the context menu
+    // can reveal chrome temporarily; Escape / the action exits fully.
+    void setPresentationMode(bool on);
+    void applyPresentationChromeVisibility();
+    void togglePresentationChrome();
+    void showDocumentContextMenu(const QPoint &globalPos);
+    void updatePresentationActionIcon();
+
     Options m_options;
 
     DocumentView *m_documentView;
@@ -184,8 +197,11 @@ private:
     QAction *m_playPauseAction;
     QAction *m_marginsAction = nullptr; // checkable session toggle for extra text margins
     QAction *m_findAction = nullptr;    // checkable toggle for the find bar
+    QAction *m_presentationAction = nullptr; // checkable: presentation / fullscreen
     QAction *m_openAction = nullptr;
     QMenu *m_recentMenu = nullptr;
+    QToolBar *m_toolBar = nullptr;
+    QWidget *m_playerBar = nullptr;
     QLabel *m_warningBanner = nullptr; // hidden unless Piper/audio is unusable
     QWidget *m_findBar = nullptr;
     QLineEdit *m_findEdit = nullptr;
@@ -226,4 +242,16 @@ private:
     // attempts are expected to fail.
     QString m_targetSocketPath;
     int m_connectAttemptsLeft = 0;
+
+    // Presentation mode state. When active, document uses presentation
+    // colors + larger font and the window is fullscreen; chrome may still
+    // be shown temporarily (Tab / context menu).
+    bool m_presentationMode = false;
+    bool m_presentationChromeVisible = false;
+    DocumentView::Colors m_savedColors;
+    QFont m_savedFont;
+    bool m_savedMarginsEnabled = false;
+    // True while we are programmatically leaving fullscreen so changeEvent
+    // does not treat the window-state change as an external exit.
+    bool m_leavingPresentation = false;
 };
