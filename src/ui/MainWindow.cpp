@@ -190,7 +190,7 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
     }
     m_documentView->setBaseFont(initialFont);
     m_documentView->setColors(m_options.colors);
-    m_documentView->setExtraMarginSize(m_options.extraMarginSize);
+    m_documentView->setExtraMarginPercent(m_options.extraMarginPercent);
     // Margins stay off until the user toggles the toolbar button (session).
 
     m_piperClient = new PiperClient(this);
@@ -576,7 +576,7 @@ void MainWindow::setUpUi()
     m_marginsAction->setCheckable(true);
     m_marginsAction->setChecked(false);
     m_marginsAction->setToolTip(
-        tr("Extra padding around the text (size set in Preferences)"));
+        tr("Extra horizontal padding as a percent of view width (set in Preferences)"));
     connect(m_marginsAction, &QAction::toggled, m_documentView, &DocumentView::setExtraMarginsEnabled);
 
     // --- Find toggle ----------------------------------------------------
@@ -1580,14 +1580,14 @@ void MainWindow::openPreferences()
     defaultColors.hover = readColor(QStringLiteral("colorHover"));
 
     bool marginOk = false;
-    const int marginVal = settings.value(QStringLiteral("extraMarginSize"),
-                                         DocumentView::kDefaultExtraMarginSize)
+    const int marginVal = settings.value(QStringLiteral("extraMarginPercent"),
+                                         DocumentView::kDefaultExtraMarginPercent)
                               .toInt(&marginOk);
-    const int defaultExtraMargin =
-        (marginOk && marginVal >= DocumentView::kMinExtraMarginSize
-         && marginVal <= DocumentView::kMaxExtraMarginSize)
+    const int defaultExtraMarginPercent =
+        (marginOk && marginVal >= DocumentView::kMinExtraMarginPercent
+         && marginVal <= DocumentView::kMaxExtraMarginPercent)
             ? marginVal
-            : DocumentView::kDefaultExtraMarginSize;
+            : DocumentView::kDefaultExtraMarginPercent;
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("voices"));
@@ -1601,7 +1601,7 @@ void MainWindow::openPreferences()
     defaultFont.setPointSize(defaultPointSize);
 
     PreferencesDialog dialog(m_knownVoices, defaultVoice, defaultSpeed, defaultFont, defaultColors,
-                             extraVoiceDirs, defaultExtraMargin, this);
+                             extraVoiceDirs, defaultExtraMarginPercent, this);
 
     auto applyToSession = [this, &dialog] {
         if (!dialog.voice().isEmpty()) {
@@ -1610,7 +1610,7 @@ void MainWindow::openPreferences()
         m_speedSpin->setValue(dialog.speed());
         m_documentView->setBaseFont(dialog.font());
         m_documentView->setColors(dialog.colors());
-        m_documentView->setExtraMarginSize(dialog.extraMarginSize());
+        m_documentView->setExtraMarginPercent(dialog.extraMarginPercent());
         statusBar()->showMessage(tr("Preferences applied to this session"), 3000);
     };
     connect(&dialog, &PreferencesDialog::applyRequested, this, applyToSession);
@@ -1634,7 +1634,7 @@ void MainWindow::openPreferences()
     settings.setValue(QStringLiteral("speed"), dialog.speed());
     settings.setValue(QStringLiteral("fontFamily"), chosenFont.family());
     settings.setValue(QStringLiteral("fontPointSize"), chosenFont.pointSize());
-    settings.setValue(QStringLiteral("extraMarginSize"), dialog.extraMarginSize());
+    settings.setValue(QStringLiteral("extraMarginPercent"), dialog.extraMarginPercent());
     storeColor(QStringLiteral("colorText"), chosenColors.text);
     storeColor(QStringLiteral("colorBackground"), chosenColors.background);
     storeColor(QStringLiteral("colorPlaying"), chosenColors.playing);

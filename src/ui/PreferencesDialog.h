@@ -39,7 +39,7 @@ public:
     PreferencesDialog(const QStringList &availableVoices, const QString &defaultVoice, double defaultSpeed,
                        const QFont &defaultFont, const DocumentView::Colors &defaultColors,
                        const QStringList &defaultExtraVoiceDirs = {},
-                       int defaultExtraMarginSize = DocumentView::kDefaultExtraMarginSize,
+                       int defaultExtraMarginPercent = DocumentView::kDefaultExtraMarginPercent,
                        QWidget *parent = nullptr);
 
     QString voice() const;
@@ -49,8 +49,9 @@ public:
     // Extra directories to scan for Piper .onnx voices (does not include the
     // built-in user drop-in folder). Applied on next app start.
     QStringList extraVoiceDirs() const;
-    // Pixel size for DocumentView extra margins when the toolbar toggle is on.
-    int extraMarginSize() const;
+    // Percent of DocumentView width for extra left/right margins when the
+    // toolbar toggle is on.
+    int extraMarginPercent() const;
 
 signals:
     // Emitted when the user clicks Apply. Caller should push getters into

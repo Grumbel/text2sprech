@@ -105,19 +105,20 @@ public:
     // Extra left/right breathing room for a narrower reading column
     // (applied as QTextEdit viewport margins, not QTextDocument's uniform
     // documentMargin -- that would also push top/bottom spacing around).
-    // Size is the pixel value used on each side when enabled; when
-    // disabled there is no extra horizontal margin at all. Size may be
-    // changed while disabled and takes effect the next time margins are
-    // turned on.
+    // Size is a percent of the document view's width on each side when
+    // enabled; when disabled there is no extra horizontal margin at all.
+    // Size may be changed while disabled and takes effect the next time
+    // margins are turned on. Pixel gutters are recomputed on resize.
     bool extraMarginsEnabled() const { return m_extraMarginsEnabled; }
-    int extraMarginSize() const { return m_extraMarginSize; }
+    int extraMarginPercent() const { return m_extraMarginPercent; }
     void setExtraMarginsEnabled(bool enabled);
-    void setExtraMarginSize(int pixels);
+    void setExtraMarginPercent(int percent);
 
     // Built-in defaults for the margin preference spin box / config.
-    static constexpr int kDefaultExtraMarginSize = 64;
-    static constexpr int kMinExtraMarginSize = 8;
-    static constexpr int kMaxExtraMarginSize = 240;
+    // Percent of DocumentView width applied as left and right gutter.
+    static constexpr int kDefaultExtraMarginPercent = 10;
+    static constexpr int kMinExtraMarginPercent = 0;
+    static constexpr int kMaxExtraMarginPercent = 40;
     static constexpr int kBuiltinDocumentMargin = 4; // Qt default, always kept for top/bottom
 
 public slots:
@@ -162,6 +163,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dragMoveEvent(QDragMoveEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     void refreshExtraSelections();
@@ -200,5 +202,5 @@ private:
     void applyDocumentMargins();
 
     bool m_extraMarginsEnabled = false;
-    int m_extraMarginSize = kDefaultExtraMarginSize;
+    int m_extraMarginPercent = kDefaultExtraMarginPercent;
 };

@@ -43,9 +43,10 @@ public:
         int fontPointSize = -1;
         // View colors from config (invalid QColor = built-in theme default).
         DocumentView::Colors colors;
-        // Extra text margin size (px) when the toolbar Margins toggle is on.
-        // Config-file only; the toggle itself is session state.
-        int extraMarginSize = DocumentView::kDefaultExtraMarginSize;
+        // Extra text margin (percent of view width, each side) when the
+        // toolbar Margins toggle is on. Config-file only; the toggle itself
+        // is session state.
+        int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
         // At most one of these "start with X" sources is used, in this
         // priority order: pasteSelection, pasteClipboard, initialFile.
         bool pasteClipboard = false;

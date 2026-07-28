@@ -38,7 +38,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
                                       double defaultSpeed, const QFont &defaultFont,
                                       const DocumentView::Colors &defaultColors,
                                       const QStringList &defaultExtraVoiceDirs,
-                                      int defaultExtraMarginSize, QWidget *parent)
+                                      int defaultExtraMarginPercent, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
@@ -75,15 +75,17 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_extraMarginSpin = new QSpinBox(this);
     m_extraMarginSpin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_extraMarginSpin->setMinimumWidth(90);
-    m_extraMarginSpin->setRange(DocumentView::kMinExtraMarginSize, DocumentView::kMaxExtraMarginSize);
-    m_extraMarginSpin->setSingleStep(8);
-    m_extraMarginSpin->setSuffix(tr(" px"));
+    m_extraMarginSpin->setRange(DocumentView::kMinExtraMarginPercent,
+                                DocumentView::kMaxExtraMarginPercent);
+    m_extraMarginSpin->setSingleStep(1);
+    m_extraMarginSpin->setSuffix(tr(" %"));
     m_extraMarginSpin->setToolTip(
-        tr("Padding around the text when the Formatting → Margins button is on. "
-           "Does not change the default tight layout."));
+        tr("Horizontal padding on each side as a percent of the document "
+           "width when the Formatting → Margins button is on. Scales with "
+           "window size. Does not change the default tight layout."));
     m_extraMarginSpin->setValue(
-        qBound(DocumentView::kMinExtraMarginSize, defaultExtraMarginSize,
-              DocumentView::kMaxExtraMarginSize));
+        qBound(DocumentView::kMinExtraMarginPercent, defaultExtraMarginPercent,
+              DocumentView::kMaxExtraMarginPercent));
 
     auto *fontRow = new QWidget(this);
     auto *fontRowLayout = new QHBoxLayout(fontRow);
@@ -138,7 +140,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     auto *formatGroup = new QGroupBox(tr("Formatting"), this);
     auto *formatForm = makeForm(formatGroup);
     formatForm->addRow(tr("Font:"), fontRow);
-    formatForm->addRow(tr("Extra text margin:"), m_extraMarginSpin);
+    formatForm->addRow(tr("Extra text margin (each side):"), m_extraMarginSpin);
 
     // --- Colors ------------------------------------------------------------
     const bool dark = palette().color(QPalette::Base).lightness() < 128;
@@ -308,7 +310,8 @@ QStringList PreferencesDialog::extraVoiceDirs() const
     return out;
 }
 
-int PreferencesDialog::extraMarginSize() const
+int PreferencesDialog::extraMarginPercent() const
 {
-    return m_extraMarginSpin ? m_extraMarginSpin->value() : DocumentView::kDefaultExtraMarginSize;
+    return m_extraMarginSpin ? m_extraMarginSpin->value()
+                             : DocumentView::kDefaultExtraMarginPercent;
 }

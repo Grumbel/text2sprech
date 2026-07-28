@@ -14,6 +14,7 @@
 #include <QMouseEvent>
 #include <QPalette>
 #include <QRect>
+#include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -102,10 +103,10 @@ void DocumentView::setExtraMarginsEnabled(bool enabled)
     applyDocumentMargins();
 }
 
-void DocumentView::setExtraMarginSize(int pixels)
+void DocumentView::setExtraMarginPercent(int percent)
 {
-    const int clamped = qBound(kMinExtraMarginSize, pixels, kMaxExtraMarginSize);
-    if (m_extraMarginSize == clamped) {
+    const int clamped = qBound(kMinExtraMarginPercent, percent, kMaxExtraMarginPercent);
+    if (m_extraMarginPercent == clamped) {
         // Still re-apply if currently enabled so a no-op clamp after a bad
         // config value doesn't leave the document on the old margin.
         if (m_extraMarginsEnabled) {
@@ -113,7 +114,7 @@ void DocumentView::setExtraMarginSize(int pixels)
         }
         return;
     }
-    m_extraMarginSize = clamped;
+    m_extraMarginPercent = clamped;
     if (m_extraMarginsEnabled) {
         applyDocumentMargins();
     }
@@ -127,9 +128,23 @@ void DocumentView::applyDocumentMargins()
     // default always, and add the user-facing extra margin as left/right
     // viewport margins instead, which QTextEdit supports independently of
     // the document margin and only affects the horizontal gutter.
+    //
+    // Gutter width is a percent of this widget's width so the reading
+    // column stays proportional when the window is resized.
     document()->setDocumentMargin(kBuiltinDocumentMargin);
-    const int horizontal = m_extraMarginsEnabled ? m_extraMarginSize : 0;
+    int horizontal = 0;
+    if (m_extraMarginsEnabled && m_extraMarginPercent > 0) {
+        horizontal = qMax(0, (width() * m_extraMarginPercent) / 100);
+    }
     setViewportMargins(horizontal, 0, horizontal, 0);
+}
+
+void DocumentView::resizeEvent(QResizeEvent *event)
+{
+    QTextEdit::resizeEvent(event);
+    if (m_extraMarginsEnabled) {
+        applyDocumentMargins();
+    }
 }
 
 void DocumentView::setColors(const Colors &colors)

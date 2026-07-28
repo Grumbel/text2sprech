@@ -106,7 +106,7 @@ voice=en_US-lessac-medium
 speed=1.25
 fontFamily=Noto Sans
 fontPointSize=13
-extraMarginSize=64
+extraMarginPercent=10
 # Optional color overrides (HexArgb); omit to use built-in light/dark theme defaults
 # colorText=#FF1C1E22
 # colorBackground=#FFFFFFFF
@@ -121,9 +121,11 @@ alone; `fontPointSize` <= 0 or absent leaves its default size alone.
 Invalid `fontPointSize` values (outside 6-72, wrong type) are ignored with
 a warning printed to stderr, falling back to the default. Color keys are
 written by Preferences when you pick a custom swatch; reset clears them.
-`extraMarginSize` (8–240 px, default 64) is the padding used when the
-toolbar **Margins** button is checked; the toggle itself is session-only
-and does not persist.
+`extraMarginPercent` (0–40 %, default 10) is the horizontal padding on
+**each side** as a percent of the document view width when the toolbar
+**Margins** button is checked; gutters scale with window size. The toggle
+itself is session-only and does not persist. (Older configs that used
+`extraMarginSize` in pixels are ignored; set the new key in Preferences.)
 
 ### Voice models (languages)
 
