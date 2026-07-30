@@ -194,7 +194,12 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName("text2sprech");
     QApplication::setOrganizationName("text2sprech");
-    QApplication::setApplicationVersion("0.1.0");
+    // TEXT2SPRECH_VERSION comes from the top-level VERSION file via CMake
+    // (or -DPROJECT_VERSION_FULL from the flake, which may append +g<rev>).
+#ifndef TEXT2SPRECH_VERSION
+#define TEXT2SPRECH_VERSION "0.0.0-unknown"
+#endif
+    QApplication::setApplicationVersion(QStringLiteral(TEXT2SPRECH_VERSION));
     // Embedded via resources/text2sprech.qrc (compiled in through AUTORCC) so
     // the icon is available even without the .desktop file's icon-theme
     // lookup finding it -- e.g. running the binary directly during dev.

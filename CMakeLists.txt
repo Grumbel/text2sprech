@@ -2,7 +2,21 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 cmake_minimum_required(VERSION 3.21)
-project(text2sprech LANGUAGES CXX)
+
+# Source of truth: top-level VERSION file (e.g. "0.1.0-dev"), or
+# -DPROJECT_VERSION_FULL=... from packaging (Nix flake appends +g<rev>).
+if(NOT DEFINED PROJECT_VERSION_FULL)
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROJECT_VERSION_FULL LIMIT_COUNT 1)
+endif()
+# CMake's project(VERSION) wants numeric major.minor.patch; strip any
+# -dev / +git suffix for that only. The full string is what the app shows.
+string(REGEX REPLACE "^([0-9]+\\.[0-9]+\\.[0-9]+).*" "\\1" PROJECT_VERSION_CMAKE
+                     "${PROJECT_VERSION_FULL}")
+
+project(text2sprech
+  VERSION "${PROJECT_VERSION_CMAKE}"
+  LANGUAGES CXX
+)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +58,7 @@ target_include_directories(text2sprech PRIVATE src)
 # elsewhere -- that's what the flake's qtWrapperArgs PATH injection is for.
 target_compile_definitions(text2sprech PRIVATE
     PIPER_SERVER_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/piper_server/server.py"
+    TEXT2SPRECH_VERSION="${PROJECT_VERSION_FULL}"
 )
 
 target_link_libraries(text2sprech PRIVATE

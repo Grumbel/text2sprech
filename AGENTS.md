@@ -8,6 +8,16 @@ This file orients automated agents working on **text2sprech**. Prefer it over gu
 - Prefer implementing or updating TODO items before inventing unrelated scope.
 - **Every larger change** (feature, protocol tweak, multi-file refactor, or a batch of TODO items) should end with a **detailed git commit message** in the agent’s final answer: subject line + body explaining *why*, what files/areas moved, and any follow-ups or intentional non-goals. Agents should not rely on a one-line “fix bug” summary for multi-file work.
 
+## Version number handling
+
+* Version number is stored in a file **`VERSION`** in the top-level directory and it is the **only source of truth**. Do not duplicate the version string in other places; generate it dynamically from that file.
+* Inside git, the version number always contains a **`-dev` suffix** (e.g. `0.2.0-dev`).
+* In **`CMakeLists.txt`**, the `VERSION` file is read and made available as `PROJECT_VERSION_FULL` (overrideable with `-DPROJECT_VERSION_FULL=...` for packaging).
+* CMake passes `PROJECT_VERSION_FULL` into the sources as **`TEXT2SPRECH_VERSION`**.
+* **`flake.nix`** reads `VERSION` and uses it as the package version, appending the short git hash when available, e.g. `0.2.0-dev+gd910b1c` or `0.2.0-dev+gfb40b2c-dirty`.
+* The version is shown via the **`--version`** CLI flag (`QApplication::applicationVersion`) and in the **About** dialog.
+* When a release is prepared, remove the `-dev` suffix, commit `VERSION`, and tag the tree: e.g. `0.2.0-dev` becomes `0.2.0` and the tag is **`v0.2.0`** (always `v` + the contents of `VERSION`).
+
 ## What this project is
 
 Local **text-to-speech reader**: open or paste text/HTML, split into sentences, synthesize with **Piper**, play with **live sentence highlighting**, seek/prev/next, voice and speed controls.
@@ -23,6 +33,7 @@ Nothing is sent to the cloud; synthesis stays on the machine.
 
 ```
 text2sprech/
+├── VERSION                 # Sole version source of truth (e.g. 0.1.0-dev)
 ├── CMakeLists.txt          # Qt6 app + optional Qt Test target
 ├── flake.nix / flake.lock  # Nix packages, dev shell, optional bundled voice
 ├── PROTOCOL.md             # Client ↔ server message schema (source of truth)

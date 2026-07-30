@@ -5,6 +5,7 @@ version = 1
 path = [
     "README.md",
     "PROTOCOL.md",
+    "VERSION",
     "flake.nix",
     "flake.lock",
     "resources/text2sprech.desktop",

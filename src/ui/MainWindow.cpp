@@ -2226,7 +2226,7 @@ void MainWindow::openAbout()
     // to build a custom one.
     QMessageBox::about(
         this, tr("About text2sprech"),
-        tr("<h3>text2sprech</h3>"
+        tr("<h3>text2sprech %1</h3>"
            "<p>A local text-to-speech reader with live sentence "
            "highlighting, powered by a Piper TTS backend running entirely "
            "on your machine — nothing is sent to the cloud.</p>"
@@ -2234,7 +2234,8 @@ void MainWindow::openAbout()
            "<a href=\"https://github.com/Grumbel/text2sprech\">"
            "github.com/Grumbel/text2sprech</a></p>"
            "<p>Copyright © 2026 Ingo Ruhnke &lt;grumbel@gmail.com&gt;<br>"
-           "Licensed under the GNU General Public License v3.0 or later.</p>"));
+           "Licensed under the GNU General Public License v3.0 or later.</p>")
+            .arg(QApplication::applicationVersion()));
 }
 
 void MainWindow::setActivity(const QString &text, ActivityKind kind)

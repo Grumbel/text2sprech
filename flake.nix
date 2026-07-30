@@ -24,6 +24,12 @@
         pkgs = import nixpkgs { inherit system; };
         inherit (pkgs) lib;
 
+        # Single source of truth: top-level VERSION (e.g. 0.1.0-dev). Nix
+        # builds append the short git rev when available.
+        versionBase = lib.strings.removeSuffix "\n" (builtins.readFile ./VERSION);
+        gitRev = self.shortRev or self.dirtyShortRev or "dirty";
+        version = "${versionBase}+g${gitRev}";
+
         piperVoiceName = "en_US-lessac-medium";
 
         # Install the two flake-input files under share/piper/voices/ so the
@@ -54,7 +60,7 @@
         mkPiperServer = { withDefaultVoice ? false }:
           pkgs.stdenv.mkDerivation {
             pname = if withDefaultVoice then "piper-server-full" else "piper-server";
-            version = "0.1.0";
+            inherit version;
             src = ./piper_server;
             dontBuild = true;
             nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -86,11 +92,14 @@
           in
           pkgs.stdenv.mkDerivation {
             pname = if withDefaultVoice then "text2sprech-full" else "text2sprech";
-            version = "0.1.0";
+            inherit version;
             src = ./.;
             nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtmultimedia ];
-            cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
+            cmakeFlags = [
+              "-DCMAKE_BUILD_TYPE=Release"
+              "-DPROJECT_VERSION_FULL=${version}"
+            ];
             qtWrapperArgs = [
               "--prefix" "PATH" ":" "${server}/bin"
             ] ++ lib.optionals withDefaultVoice [
