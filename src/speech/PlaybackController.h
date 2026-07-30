@@ -75,6 +75,11 @@ public:
 
     bool isPlaying() const;
 
+    // While true, ignore audioReady / synthesisError so a long export can
+    // monopolize PiperClient without polluting the playback cache.
+    void setSuspended(bool suspended);
+    bool isSuspended() const { return m_suspended; }
+
 signals:
     void sentenceStarted(int sentenceId, int start, int end);
     // Emitted when playback wants to start a sentence but its audio hasn't
@@ -119,6 +124,7 @@ private:
     QHash<int, qint64> m_audioDurationMs;
     bool m_waitingForAudio = false;
     bool m_playing = false;
+    bool m_suspended = false;
     // True after pause() while the current sentence's media is still loaded;
     // play() resumes instead of reloading. Cleared by stop()/seek/new media.
     bool m_paused = false;

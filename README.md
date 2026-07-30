@@ -84,6 +84,8 @@ baked in at CMake configure time (dev-build convenience only).
 
 Example: `./build/text2sprech --voice en_US-lessac-medium --speed 1.25 --autoplay book.txt`
 
+**Export Audio** (File menu / toolbar): synthesizes the document (or from the current sentence to the end) to a single WAV via the same local Piper server. A progress dialog shows status and allows cancel — useful for long texts. Live playback is paused for the duration of the export.
+
 Example attaching to your own server: start `python3 piper_server/server.py
 --socket /tmp/my-piper.sock` yourself, then `./build/text2sprech --piper-socket
 /tmp/my-piper.sock`.

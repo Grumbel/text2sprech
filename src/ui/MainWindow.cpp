@@ -54,6 +54,7 @@
 #include <algorithm>
 
 #include "DocumentView.h"
+#include "ExportAudioDialog.h"
 #include "PreferencesDialog.h"
 #include "document/HtmlSanitizer.h"
 #include "document/SentenceSplitter.h"
@@ -541,6 +542,13 @@ void MainWindow::setUpUi()
     connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveDocumentAs);
     addAction(saveAsAction);
 
+    auto *exportAudioAction = new QAction(
+        themeIcon(QStringLiteral("audio-x-generic"), style()->standardIcon(QStyle::SP_MediaVolume)),
+        tr("Export &Audio…"), this);
+    exportAudioAction->setToolTip(tr("Synthesize the document to a WAV file"));
+    connect(exportAudioAction, &QAction::triggered, this, &MainWindow::exportAudio);
+    addAction(exportAudioAction);
+
     auto *quitAction = new QAction(
         themeIcon(QStringLiteral("application-exit"), style()->standardIcon(QStyle::SP_DialogCloseButton)),
         tr("&Quit"), this);
@@ -692,6 +700,7 @@ void MainWindow::setUpUi()
     fileMenu->addMenu(m_recentMenu);
     fileMenu->addSeparator();
     fileMenu->addAction(saveAsAction);
+    fileMenu->addAction(exportAudioAction);
     fileMenu->addSeparator();
     fileMenu->addAction(quitAction);
 
@@ -731,6 +740,7 @@ void MainWindow::setUpUi()
         openButton->setPopupMode(QToolButton::MenuButtonPopup);
     }
     m_toolBar->addAction(saveAsAction);
+    m_toolBar->addAction(exportAudioAction);
     m_toolBar->addAction(copyAction);
     m_toolBar->addAction(pasteClipboardAction);
     m_toolBar->addSeparator();
@@ -1139,6 +1149,47 @@ void MainWindow::saveDocumentAs()
         saveCurrentPosition();
     }
     statusBar()->showMessage(tr("Saved %1").arg(QFileInfo(path).fileName()), 4000);
+}
+
+void MainWindow::exportAudio()
+{
+    if (!m_realAudioAvailable) {
+        QMessageBox::warning(
+            this, tr("Export Audio"),
+            tr("Piper TTS audio is not available. Install Piper and voice models first."));
+        return;
+    }
+    if (!m_piperClient || !m_piperClient->isConnected()) {
+        QMessageBox::warning(this, tr("Export Audio"),
+                             tr("Not connected to the Piper server."));
+        return;
+    }
+    if (m_sentences.isEmpty()) {
+        QMessageBox::information(this, tr("Export Audio"),
+                                 tr("Open or paste a document with speakable text first."));
+        return;
+    }
+
+    // Suspend playback so export owns PiperClient responses exclusively.
+    const QString voice = m_voiceCombo ? m_voiceCombo->currentText() : QString();
+    const double speed = m_speedSpin ? m_speedSpin->value() : 1.0;
+    const int startIndex = m_currentSentenceIndex >= 0 ? m_currentSentenceIndex : 0;
+
+    setPlayingUi(false);
+    m_playback->setSuspended(true);
+
+    ExportAudioDialog dialog(m_piperClient, m_sentences, startIndex, voice, speed, m_knownVoices,
+                             this);
+    dialog.exec();
+
+    // Restore session voice/speed on the server (export may have changed them)
+    // and allow playback to request synthesis again.
+    if (!voice.isEmpty()) {
+        m_playback->setVoice(voice);
+    }
+    m_playback->setSpeed(speed);
+    m_playback->setSuspended(false);
+    statusBar()->showMessage(tr("Export dialog closed"), 2500);
 }
 
 void MainWindow::openFilePath(const QString &path)

@@ -145,6 +145,19 @@ bool PlaybackController::isPlaying() const
     return m_playing;
 }
 
+void PlaybackController::setSuspended(bool suspended)
+{
+    m_suspended = suspended;
+    if (suspended) {
+        // Drop any in-flight playback synthesis; export owns the client now.
+        stop();
+        m_client->cancelAll();
+        m_audioCache.clear();
+        m_audioDurationMs.clear();
+        m_waitingForAudio = false;
+    }
+}
+
 void PlaybackController::play()
 {
     if (m_currentIndex < 0 || m_sentences.isEmpty()) {
@@ -401,6 +414,9 @@ void PlaybackController::advanceToNext()
 
 void PlaybackController::onAudioReady(int id, int /*sampleRate*/, const QByteArray &wav)
 {
+    if (m_suspended) {
+        return;
+    }
     m_audioCache.insert(id, wav);
     const qint64 duration = wavDurationMs(wav);
     if (duration > 0) {
@@ -414,6 +430,9 @@ void PlaybackController::onAudioReady(int id, int /*sampleRate*/, const QByteArr
 
 void PlaybackController::onSynthesisError(int id, const QString &message)
 {
+    if (m_suspended) {
+        return;
+    }
     emit errorOccurred(QStringLiteral("Synthesis failed for sentence %1: %2").arg(id).arg(message));
     // Skip the broken sentence rather than stalling playback entirely.
     if (m_playing && m_currentIndex >= 0 && m_currentIndex < m_sentences.size()

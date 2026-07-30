@@ -88,6 +88,8 @@ private slots:
     void openFile();
     // Classic Save As…: write the current document plain text to a user-chosen path.
     void saveDocumentAs();
+    // Synthesize sentences to a single WAV (progress dialog; suspends playback).
+    void exportAudio();
     void togglePlayPause();
     void onSentenceStarted(int sentenceId, int start, int end);
     void onPreparingAudio(int sentenceId);
