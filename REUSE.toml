@@ -10,7 +10,7 @@ path = [
     "flake.lock",
     "resources/text2sprech.desktop",
     "resources/text2sprech-clipboard.desktop",
-    "resources/text2sprech.metainfo.xml",
+    "resources/text2sprech.metainfo.xml.in",
     "resources/text2sprech.qrc",
 ]
 precedence = "aggregate"

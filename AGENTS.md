@@ -18,9 +18,10 @@ This file orients automated agents and human developers working on **text2sprech
 * Inside git, the version number always contains a **`-dev` suffix** (e.g. `0.2.0-dev`).
 * In **`CMakeLists.txt`**, the `VERSION` file is read and made available as `PROJECT_VERSION_FULL` (overrideable with `-DPROJECT_VERSION_FULL=...` for packaging).
 * CMake passes `PROJECT_VERSION_FULL` into the sources as **`TEXT2SPRECH_VERSION`**.
+* AppStream metainfo is generated from **`resources/text2sprech.metainfo.xml.in`** via `configure_file()` so the installed `<release version="…">` matches `PROJECT_VERSION_FULL`. Release `type` is `development` if the version contains `-dev`, otherwise `stable`. Do not hardcode the product version in the template.
 * **`flake.nix`** reads `VERSION` and uses it as the package version, appending the short git hash when available, e.g. `0.2.0-dev+gd910b1c` or `0.2.0-dev+gfb40b2c-dirty`.
 * The version is shown via the **`--version`** CLI flag (`QApplication::applicationVersion`) and in the **About** dialog.
-* When a release is prepared, remove the `-dev` suffix, commit `VERSION`, and tag the tree: e.g. `0.2.0-dev` becomes `0.2.0` and the tag is **`v0.2.0`** (always `v` + the contents of `VERSION`).
+* When a release is prepared, remove the `-dev` suffix, commit `VERSION`, and tag the tree: e.g. `0.2.0-dev` becomes `0.2.0` and the tag is **`v0.2.0`** (always `v` + the contents of `VERSION`). Metainfo is regenerated on the next CMake configure — no separate AppStream version edit.
 
 ## What this project is
 
@@ -56,7 +57,7 @@ text2sprech/
 │   └── speech/             # PiperClient, PiperServerManager, PlaybackController
 ├── resources/              # icons, .desktop, AppStream metainfo, .qrc
 │   ├── text2sprech.desktop / text2sprech-clipboard.desktop
-│   ├── text2sprech.metainfo.xml
+│   ├── text2sprech.metainfo.xml.in  # AppStream; version filled at configure
 │   ├── text2sprech.png / icons/text2sprech-*.png
 │   └── text2sprech.qrc
 └── tests/                  # test_sentence_splitter (Qt Test)

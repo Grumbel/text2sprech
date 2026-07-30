@@ -89,7 +89,24 @@ install(FILES
     resources/text2sprech-clipboard.desktop
   DESTINATION share/applications)
 
-install(FILES resources/text2sprech.metainfo.xml
+# AppStream metainfo: version comes from PROJECT_VERSION_FULL (VERSION file
+# or -DPROJECT_VERSION_FULL from the flake), not a hardcoded string in git.
+string(TIMESTAMP PROJECT_RELEASE_DATE "%Y-%m-%d" UTC)
+if(PROJECT_VERSION_FULL MATCHES "-dev")
+  set(PROJECT_RELEASE_TYPE "development")
+  set(PROJECT_RELEASE_DESCRIPTION
+      "Development snapshot (see top-level VERSION).")
+else()
+  set(PROJECT_RELEASE_TYPE "stable")
+  set(PROJECT_RELEASE_DESCRIPTION
+      "Release ${PROJECT_VERSION_FULL}.")
+endif()
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/text2sprech.metainfo.xml.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/text2sprech.metainfo.xml"
+  @ONLY
+)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/text2sprech.metainfo.xml"
   DESTINATION share/metainfo)
 
 # hicolor icons at several sizes (generated from resources/text2sprech.png).

@@ -2,6 +2,10 @@
 <!--
   SPDX-FileCopyrightText: 2026 Ingo Ruhnke <grumbel@gmail.com>
   SPDX-License-Identifier: GPL-3.0-or-later
+
+  Template: configure_file() substitutes @PROJECT_VERSION_FULL@ (and related)
+  from the top-level VERSION file / -DPROJECT_VERSION_FULL at CMake configure
+  time. Do not hardcode the product version here.
 -->
 <component type="desktop-application">
   <id>text2sprech</id>
@@ -59,11 +63,10 @@
     <control>pointing</control>
     <control>keyboard</control>
   </recommends>
-  <!-- Version comes from packaging; releases can be filled at tag time. -->
   <releases>
-    <release version="0.1.0-dev" date="2026-07-30" type="development">
+    <release version="@PROJECT_VERSION_FULL@" date="@PROJECT_RELEASE_DATE@" type="@PROJECT_RELEASE_TYPE@">
       <description>
-        <p>Development snapshot; drop the -dev suffix in VERSION when tagging v0.1.0.</p>
+        <p>@PROJECT_RELEASE_DESCRIPTION@</p>
       </description>
     </release>
   </releases>
