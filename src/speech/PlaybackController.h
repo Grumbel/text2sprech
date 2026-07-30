@@ -52,6 +52,10 @@ public:
     qint64 currentDurationMs() const;
     // 0..1 through the current sentence (position / duration).
     double currentFraction() const;
+    // Known WAV-header duration for a sentence id after synthesis (0 if unknown).
+    // Kept after the PCM buffer is dropped so progress labels can prefer real
+    // length once lookahead has filled in.
+    qint64 cachedDurationMs(int sentenceId) const;
     // Speed is baked into synthesis (Piper length_scale), not playback rate.
     // Cancels in-flight work and drops cached audio so upcoming sentences
     // are re-synthesized at the new speed (same pattern as setVoice).
@@ -118,9 +122,9 @@ private:
 
     // audio for sentences we've already requested but not yet played
     QHash<int, QByteArray> m_audioCache; // key: sentence id (== index into m_sentences for v1)
-    // WAV-header durations (ms), filled when audio is cached — reliable even
-    // before QMediaPlayer reports duration, which is what makes mid-sentence
-    // seeks work with setSourceDevice.
+    // WAV-header durations (ms), filled when audio is synthesized. Kept after
+    // m_audioCache drops the PCM so progress estimates can prefer real length
+    // over the word-rate fallback. Cleared on load / voice / speed change.
     QHash<int, qint64> m_audioDurationMs;
     bool m_waitingForAudio = false;
     bool m_playing = false;

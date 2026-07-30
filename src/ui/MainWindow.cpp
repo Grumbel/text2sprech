@@ -2254,21 +2254,48 @@ void MainWindow::refreshProgress()
     }
 
     const double speed = m_speedSpin->value();
-    const int totalSec = wordsToSeconds(double(m_totalWords), speed);
-    const int maxUnits = qMax(1, m_totalWords * kProgressUnitsPerWord);
+    // Slider stays word-based (uniform axis for seeking). Elapsed/remaining
+    // prefer real WAV durations when PlaybackController has them (lookahead
+    // or already-spoken sentences); otherwise ~150 wpm at current speed.
+    auto sentenceDurationMs = [this, speed](int index) -> qint64 {
+        if (index < 0 || index >= m_sentences.size()) {
+            return 0;
+        }
+        if (m_playback) {
+            const qint64 known = m_playback->cachedDurationMs(m_sentences[index].id);
+            if (known > 0) {
+                return known; // already synthesized at session speed
+            }
+        }
+        return qint64(wordsToSeconds(double(qMax(1, countWords(m_sentences[index].text))), speed))
+            * 1000;
+    };
 
-    double wordsSoFar = 0.0;
-    if (m_currentSentenceIndex >= 0
-        && m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
-        wordsSoFar = double(m_cumulativeWordsBeforeSentence[m_currentSentenceIndex]);
-        const int wordsInSentence = countWords(m_sentences[m_currentSentenceIndex].text);
-        // Intra-sentence fraction maps onto estimated speaking time for this
-        // segment (word count × rate), so the thumb moves smoothly in time.
-        wordsSoFar += m_intraSentenceFraction * double(qMax(1, wordsInSentence));
+    qint64 totalMs = 0;
+    for (int i = 0; i < m_sentences.size(); ++i) {
+        totalMs += sentenceDurationMs(i);
     }
 
-    const int elapsedSec = wordsToSeconds(wordsSoFar, speed);
-    const int remainingSec = wordsToSeconds(double(m_totalWords) - wordsSoFar, speed);
+    qint64 elapsedMs = 0;
+    double wordsSoFar = 0.0;
+    if (m_currentSentenceIndex >= 0
+        && m_currentSentenceIndex < m_sentences.size()) {
+        for (int i = 0; i < m_currentSentenceIndex; ++i) {
+            elapsedMs += sentenceDurationMs(i);
+        }
+        elapsedMs += qint64(m_intraSentenceFraction * double(sentenceDurationMs(m_currentSentenceIndex))
+                            + 0.5);
+        if (m_currentSentenceIndex < m_cumulativeWordsBeforeSentence.size()) {
+            wordsSoFar = double(m_cumulativeWordsBeforeSentence[m_currentSentenceIndex]);
+            const int wordsInSentence = countWords(m_sentences[m_currentSentenceIndex].text);
+            wordsSoFar += m_intraSentenceFraction * double(qMax(1, wordsInSentence));
+        }
+    }
+
+    const int totalSec = int((totalMs + 500) / 1000);
+    const int elapsedSec = int((elapsedMs + 500) / 1000);
+    const int remainingSec = qMax(0, int((totalMs - elapsedMs + 500) / 1000));
+    const int maxUnits = qMax(1, m_totalWords * kProgressUnitsPerWord);
     const int unitValue = qBound(
         0, static_cast<int>(wordsSoFar * double(kProgressUnitsPerWord) + 0.5), maxUnits);
 
@@ -2288,7 +2315,7 @@ void MainWindow::refreshProgress()
         ? static_cast<int>(100.0 * wordsSoFar / double(m_totalWords) + 0.5)
         : 0;
     m_progressSlider->setToolTip(
-        tr("Position: %1% · ~%2 total at current speed · click or drag to jump")
+        tr("Position: %1% · ~%2 total · click or drag to jump")
             .arg(percent)
             .arg(formatDuration(totalSec)));
 }
@@ -2337,11 +2364,14 @@ void MainWindow::previewProgressUnit(int unit)
     m_currentSentenceIndex = index;
     m_intraSentenceFraction = fraction;
 
-    const double speed = m_speedSpin->value();
-    const double words = double(unit) / double(kProgressUnitsPerWord);
-    m_elapsedLabel->setText(formatDuration(wordsToSeconds(words, speed)));
-    m_remainingLabel->setText(QStringLiteral("−%1").arg(
-        formatDuration(wordsToSeconds(double(m_totalWords) - words, speed))));
+    // Same hybrid elapsed/remaining as refreshProgress (labels only).
+    refreshProgress();
+    // refreshProgress may overwrite the slider while pressed; keep the drag value.
+    if (m_progressSliderPressed) {
+        m_progressSlider->blockSignals(true);
+        m_progressSlider->setValue(unit);
+        m_progressSlider->blockSignals(false);
+    }
 
     // Fine highlight follows the thumb even before audio seeks on release.
     const auto state = m_playback->isPlaying()

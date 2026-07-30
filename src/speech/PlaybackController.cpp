@@ -106,6 +106,11 @@ qint64 PlaybackController::durationForCurrentSentence() const
     return 0;
 }
 
+qint64 PlaybackController::cachedDurationMs(int sentenceId) const
+{
+    return m_audioDurationMs.value(sentenceId, 0);
+}
+
 void PlaybackController::setVolume(float volume)
 {
     if (!m_audioOutput) {
@@ -389,8 +394,9 @@ void PlaybackController::advanceToNext()
     const qint64 finishedDuration = qMax(m_player.duration(),
         m_audioDurationMs.value(m_sentences[finishedIndex].id, qint64(0)));
 
+    // Drop PCM to free memory; keep duration so progress labels can use real
+    // lengths for sentences already spoken (and for lookahead still cached).
     m_audioCache.remove(m_sentences[finishedIndex].id);
-    m_audioDurationMs.remove(m_sentences[finishedIndex].id);
     m_pendingSeekFraction = -1.0;
     ++m_currentIndex;
     m_paused = false;
