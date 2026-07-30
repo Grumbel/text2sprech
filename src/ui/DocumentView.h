@@ -133,6 +133,7 @@ public:
     static constexpr int kDefaultExtraMarginPercent = 10;
     static constexpr int kMinExtraMarginPercent = 0;
     static constexpr int kMaxExtraMarginPercent = 40;
+    static constexpr int kExtraMarginStepPercent = 5; // toolbar / menu ± step
     static constexpr int kBuiltinDocumentMargin = 4; // Qt default, always kept for top/bottom
 
     static constexpr double kDefaultLineSpacing = 1.0;
@@ -153,6 +154,12 @@ public slots:
     // relative zoom unit.
     void increaseTextSize();
     void decreaseTextSize();
+
+    // Convenience +/- kExtraMarginStepPercent adjustments on extra horizontal
+    // margin percent (clamped to kMin..kMax). Ensures extra margins stay
+    // enabled so the change is visible.
+    void increaseExtraMargin();
+    void decreaseExtraMargin();
 
 signals:
     // Emitted when the user clicks inside the text; caller maps this back

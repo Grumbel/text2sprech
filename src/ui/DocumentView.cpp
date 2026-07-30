@@ -117,6 +117,20 @@ void DocumentView::decreaseTextSize()
     setBaseFont(f);
 }
 
+void DocumentView::increaseExtraMargin()
+{
+    // Always enable so adjusting from Preferences-style percent is visible
+    // even if a caller had turned gutters off.
+    setExtraMarginsEnabled(true);
+    setExtraMarginPercent(m_extraMarginPercent + kExtraMarginStepPercent);
+}
+
+void DocumentView::decreaseExtraMargin()
+{
+    setExtraMarginsEnabled(true);
+    setExtraMarginPercent(m_extraMarginPercent - kExtraMarginStepPercent);
+}
+
 void DocumentView::setExtraMarginsEnabled(bool enabled)
 {
     if (m_extraMarginsEnabled == enabled) {

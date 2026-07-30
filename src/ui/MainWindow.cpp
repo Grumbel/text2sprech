@@ -572,6 +572,57 @@ void MainWindow::setUpUi()
         {QKeySequence::ZoomIn, QKeySequence(Qt::CTRL | Qt::Key_Equal)});
     connect(increaseTextSizeAction, &QAction::triggered, m_documentView, &DocumentView::increaseTextSize);
 
+    // Margin widen/narrow (±5% of view width each side). Session only —
+    // startup default remains Preferences / --margin / config.
+    auto adjustSessionMargin = [this](int delta) {
+        if (m_presentationMode) {
+            m_presentationExtraMarginPercent = qBound(
+                DocumentView::kMinExtraMarginPercent,
+                m_presentationExtraMarginPercent + delta,
+                DocumentView::kMaxExtraMarginPercent);
+            applyLivePresentationAppearance();
+            statusBar()->showMessage(
+                tr("Presentation margins: %1% each side")
+                    .arg(m_presentationExtraMarginPercent),
+                2500);
+            return;
+        }
+        const int next = qBound(DocumentView::kMinExtraMarginPercent,
+                               m_documentView->extraMarginPercent() + delta,
+                               DocumentView::kMaxExtraMarginPercent);
+        m_documentView->setExtraMarginsEnabled(true);
+        m_documentView->setExtraMarginPercent(next);
+        statusBar()->showMessage(tr("Margins: %1% each side").arg(next), 2500);
+    };
+
+    auto *decreaseMarginAction = new QAction(
+        themedOrPainted(
+            {QStringLiteral("format-indent-less"), QStringLiteral("go-previous"),
+             QStringLiteral("object-flip-horizontal")},
+            style()->standardIcon(QStyle::SP_ArrowLeft)),
+        tr("Decrease &Margins"), this);
+    decreaseMarginAction->setToolTip(
+        tr("Narrow side margins by %1% (Ctrl+[)").arg(DocumentView::kExtraMarginStepPercent));
+    decreaseMarginAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_BracketLeft));
+    connect(decreaseMarginAction, &QAction::triggered, this, [adjustSessionMargin] {
+        adjustSessionMargin(-DocumentView::kExtraMarginStepPercent);
+    });
+    addAction(decreaseMarginAction);
+
+    auto *increaseMarginAction = new QAction(
+        themedOrPainted(
+            {QStringLiteral("format-indent-more"), QStringLiteral("go-next"),
+             QStringLiteral("object-flip-horizontal")},
+            style()->standardIcon(QStyle::SP_ArrowRight)),
+        tr("Increase &Margins"), this);
+    increaseMarginAction->setToolTip(
+        tr("Widen side margins by %1% (Ctrl+])").arg(DocumentView::kExtraMarginStepPercent));
+    increaseMarginAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_BracketRight));
+    connect(increaseMarginAction, &QAction::triggered, this, [adjustSessionMargin] {
+        adjustSessionMargin(DocumentView::kExtraMarginStepPercent);
+    });
+    addAction(increaseMarginAction);
+
     m_presentationAction = new QAction(
         themedOrPainted(
             {QStringLiteral("view-fullscreen"), QStringLiteral("view-fullscreen-symbolic")},
@@ -654,6 +705,9 @@ void MainWindow::setUpUi()
     viewMenu->addAction(increaseTextSizeAction);
     viewMenu->addAction(decreaseTextSizeAction);
     viewMenu->addSeparator();
+    viewMenu->addAction(increaseMarginAction);
+    viewMenu->addAction(decreaseMarginAction);
+    viewMenu->addSeparator();
     viewMenu->addAction(m_presentationAction);
 
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
@@ -709,6 +763,8 @@ void MainWindow::setUpUi()
     m_toolBar->addSeparator();
     m_toolBar->addAction(decreaseTextSizeAction);
     m_toolBar->addAction(increaseTextSizeAction);
+    m_toolBar->addAction(decreaseMarginAction);
+    m_toolBar->addAction(increaseMarginAction);
 
     m_toolBar->addSeparator();
     m_toolBar->addAction(m_findAction);
