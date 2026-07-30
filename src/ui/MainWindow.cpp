@@ -2116,16 +2116,19 @@ bool MainWindow::findInDocument(bool forward)
     }
 
     m_documentView->ensureCursorVisible();
-    // Align progress / sentence highlight with the match when possible.
+    // Sync highlight *and* playback position (same path as click-to-jump).
+    // Updating only the highlight left PlaybackController on the old sentence,
+    // so Play continued from the previous place after a Find jump.
     const int pos = m_documentView->textCursor().selectionStart();
     if (!m_sentences.isEmpty() && pos >= 0) {
         const int idx = sentenceIndexForOffset(pos);
         if (idx >= 0 && idx < m_sentences.size()) {
-            // Visual only — don't seek playback (user may be reading, not listening).
             const Sentence &s = m_sentences[idx];
-            m_documentView->highlightRange(s.start, s.end, DocumentView::HighlightState::Stopped);
-            m_currentSentenceIndex = idx;
-            refreshProgress();
+            double fraction = 0.0;
+            if (s.end > s.start) {
+                fraction = qBound(0.0, double(pos - s.start) / double(s.end - s.start), 1.0);
+            }
+            jumpToSentence(idx, fraction);
         }
     }
     return true;
