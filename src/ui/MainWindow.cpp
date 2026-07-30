@@ -1141,19 +1141,43 @@ void MainWindow::openFile()
 
 void MainWindow::saveDocumentAs()
 {
-    // Always export the rendered plain text (same source as sentence
-    // offsets). HTML documents are saved as .txt of their visible text;
-    // re-opening that file loads as plain text, which matches a reader
-    // export rather than a full HTML round-trip.
-    const QString suggested = m_currentDocumentPath.isEmpty()
-        ? QStringLiteral("document.txt")
-        : QFileInfo(m_currentDocumentPath).completeBaseName() + QStringLiteral(".txt");
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("Save As"), suggested,
-        tr("Text files (*.txt);;All files (*)"));
+    // Prefer the form the document was loaded as. HTML is the sanitized
+    // semantic markup we stored on load (not Qt's toHtml() dump). Choosing
+    // a .txt path still allows a plain-text export when the user wants it.
+    const QString baseName = m_currentDocumentPath.isEmpty()
+        ? QStringLiteral("document")
+        : QFileInfo(m_currentDocumentPath).completeBaseName();
+    const QString suggested = m_documentIsHtml
+        ? (baseName + QStringLiteral(".html"))
+        : (baseName + QStringLiteral(".txt"));
+    const QString filter = m_documentIsHtml
+        ? tr("HTML files (*.html *.htm);;Text files (*.txt);;All files (*)")
+        : tr("Text files (*.txt);;HTML files (*.html *.htm);;All files (*)");
+    const QString path = QFileDialog::getSaveFileName(this, tr("Save As"), suggested, filter);
     if (path.isEmpty()) {
         return;
     }
+
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    const bool saveAsHtml = (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))
+        || (suffix.isEmpty() && m_documentIsHtml);
+
+    QString payload;
+    if (saveAsHtml) {
+        if (m_documentIsHtml && !m_documentSource.isEmpty()) {
+            payload = m_documentSource;
+        } else {
+            // Plain-text document saved with an .html name: wrap minimally.
+            const QString plain = m_documentView->document()->toPlainText();
+            payload = QStringLiteral("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"></head>"
+                                     "<body><pre>%1</pre></body></html>\n")
+                          .arg(plain.toHtmlEscaped());
+        }
+    } else {
+        // Explicit .txt (or other): plain text of the rendered document.
+        payload = m_documentView->document()->toPlainText();
+    }
+
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         QMessageBox::warning(this, tr("Save failed"), file.errorString());
@@ -1161,13 +1185,16 @@ void MainWindow::saveDocumentAs()
     }
     QTextStream stream(&file);
     stream.setEncoding(QStringConverter::Utf8);
-    stream << m_documentView->document()->toPlainText();
+    stream << payload;
     if (stream.status() != QTextStream::Ok) {
         QMessageBox::warning(this, tr("Save failed"), tr("Could not write the full document."));
         return;
     }
     const QString resolved = canonicalizePath(path);
     setCurrentDocumentPath(resolved.isEmpty() ? path : resolved);
+    // Track format so the next Save As defaults match what we just wrote.
+    m_documentIsHtml = saveAsHtml;
+    m_documentSource = payload;
     if (!m_currentDocumentPath.isEmpty()) {
         addToRecentFiles(m_currentDocumentPath);
         setWindowTitle(tr("%1 — text2sprech").arg(QFileInfo(m_currentDocumentPath).fileName()));
@@ -1357,11 +1384,15 @@ void MainWindow::loadDocumentText(const QString &content, bool isHtml)
     m_documentView->clearHighlight();
     m_showingWelcome = false;
 
+    m_documentIsHtml = isHtml;
     if (isHtml) {
         // Reader-mode-ish subset: headings, paragraphs, lists, emphasis,
         // code, links — no colours, font sizes, families, or images.
-        m_documentView->loadHtml(HtmlSanitizer::toSemanticHtml(content));
+        // Keep the sanitized HTML for Save As so markup is not stripped.
+        m_documentSource = HtmlSanitizer::toSemanticHtml(content);
+        m_documentView->loadHtml(m_documentSource);
     } else {
+        m_documentSource = content;
         m_documentView->loadPlainText(content);
     }
     reindexSentences();

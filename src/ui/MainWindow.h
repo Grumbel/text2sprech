@@ -246,6 +246,12 @@ private:
     // Absolute canonical path when the document came from a real file;
     // empty for paste, welcome, or stdin ("-").
     QString m_currentDocumentPath;
+    // True when the loaded document was HTML (file/paste/welcome). Save As
+    // writes this form rather than stripping to plain text.
+    bool m_documentIsHtml = false;
+    // Bytes we last loaded into the view: sanitized semantic HTML, or plain
+    // text. Used by Save As so markup survives (toPlainText would strip it).
+    QString m_documentSource;
 
     // Last voice list reported by the server ("ready" message) -- used to
     // populate PreferencesDialog's voice dropdown.
