@@ -8,19 +8,20 @@ server.
 
 ![text2sprech main window](docs/screenshot-0.1.0.png)
 
-## Status / what's actually been tested
+## Status
 
-This was built in a sandbox with **no Qt6, no CMake, and no network
-access**, so here's the honest breakdown:
+**0.1.0-dev** — feature-complete for a first public release candidate. Version
+string lives only in the top-level `VERSION` file (see `AGENTS.md`).
 
-| Component | Status |
+| Component | Notes |
 |---|---|
-| `piper_server/` (Python) | **Tested end-to-end** — server + protocol framing + a real socket client, see below. Uses a `SilentTestBackend` (silent WAVs) because no Piper install/models are available in this sandbox; falls back automatically to a real Piper CLI or Python backend if either is present on your machine. |
-| `sentence_splitter.py` | **Tested** against abbreviations/decimals/initials, newline-forced breaks, blank-line paragraph breaks, max-length subdivision (both a whitespace-breakable long run and a hard, unbreakable one), and dropping punctuation/symbol-only junk segments. |
-| `synth.py`'s `PiperCliBackend` fallback behavior | **Tested** against a fake `piper` binary reproducing the real crash: confirmed unspeakable text is pre-filtered without invoking the CLI at all, confirmed the CLI-crash-despite-passing-the-filter case degrades to silence with a logged warning rather than raising, and confirmed a genuinely different failure (missing voice model) still raises normally. |
-| C++ (`src/`, `tests/`) | **Written but not compiled** — no Qt6/CMake toolchain available here. `SentenceSplitter.cpp` mirrors the tested Python logic; `tests/test_sentence_splitter.cpp` exists so you can verify it the moment you build. `PiperServerManager` (spawns/stops the server, unique per-instance socket), `PreferencesDialog`, and the CLI options are new and also unverified by a compiler yet. Everything else (PiperClient, PlaybackController, DocumentView, MainWindow) is unverified by a compiler — expect the normal first-build friction (a missed include, a signal/slot signature mismatch) rather than fundamental design bugs, since the interfaces were kept deliberately small and single-purpose. |
-| `resources/` (icon, `.qrc`, `.desktop`) | **Not verified visually** — no display/desktop environment in this sandbox to confirm the icon actually renders in a taskbar or app menu, or that the `.desktop` file's `Exec`/`Icon` fields resolve correctly once installed. The `.qrc` path (`:/icons/text2sprech.png`) and file structure follow standard Qt/freedesktop.org conventions, but worth a visual check after your first `cmake --install` or `nix build`. |
-| `flake.nix` | **Not built** — no network here to fetch nixpkgs. There's one known real gap: the Piper Python package isn't reliably in nixpkgs, so `piper_server`'s empty `pythonEnv` relies on the CLI-binary fallback in `synth.py` unless you vendor a real package (flake.nix has a TODO with the two concrete options). |
+| GUI + playback | Open/paste text or HTML, seek, find, export WAV, presentation mode, Speak Clipboard launcher |
+| `piper_server/` | Protocol + backends tested; silent-test works without models; real audio needs Piper CLI or Python API + voice files |
+| Sentence splitter | Python reference + C++ port + Qt Test suite (`tests/test_sentence_splitter.cpp`) |
+| Desktop packaging | `.desktop` (main + clipboard), AppStream metainfo, hicolor icons 16–512, CMake install + Nix `postInstall` checks |
+| Nix | `nix build .#text2sprech-full`; Piper *Python* package may still be missing in nixpkgs — CLI backend is the usual path for real audio |
+
+Before tagging **v0.1.0**: drop `-dev` from `VERSION`, smoke-test on a real desktop (menu icon, Open with, Space play/pause, Find→Play, export).
 
 ## Running it
 
@@ -43,8 +44,9 @@ a graceful stop), escalating to SIGKILL if it doesn't exit within ~2s.
 It locates the server to spawn in this order: `$TEXT2SPRECH_PIPER_SERVER_BIN` if
 set, then a `piper-server` executable on `PATH` (what the flake's
 `piper-server` package + `qtWrapperArgs` provide once installed), then
-falling back to `python3 piper_server/server.py` using the source-tree path
-baked in at CMake configure time (dev-build convenience only).
+`python3` with the installed
+`share/text2sprech/piper_server/server.py` next to the binary, then the
+source-tree path baked in at CMake configure time (dev-build only).
 
 ### Command-line options
 

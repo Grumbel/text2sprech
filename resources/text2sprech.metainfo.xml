@@ -29,6 +29,12 @@
   <developer id="grumbel">
     <name>Ingo Ruhnke</name>
   </developer>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main window with sentence highlighting</caption>
+      <image>https://raw.githubusercontent.com/Grumbel/text2sprech/main/docs/screenshot-0.1.0.png</image>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1" />
   <categories>
     <category>Utility</category>

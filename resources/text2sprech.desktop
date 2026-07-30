@@ -19,4 +19,5 @@ X-License=GPL-3.0-or-later
 
 [Desktop Action speak-clipboard]
 Name=Speak Clipboard
+Icon=text2sprech
 Exec=text2sprech --paste-clipboard --autoplay

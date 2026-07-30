@@ -20,7 +20,8 @@ SPDX-License-Identifier = "GPL-3.0-or-later"
 # Binary assets (source icon + generated hicolor sizes).
 [[annotations]]
 path = [
-    "docs/screenshot.png",
+    "docs/screenshot-0.0.0.png",
+    "docs/screenshot-0.1.0.png",
     "resources/text2sprech.png",
     "resources/icons/text2sprech-16.png",
     "resources/icons/text2sprech-24.png",

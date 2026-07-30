@@ -50,7 +50,11 @@ text2sprech/
 │   ├── ui/                 # MainWindow, DocumentView, PreferencesDialog
 │   ├── document/           # Sentence, SentenceSplitter, HtmlSanitizer
 │   └── speech/             # PiperClient, PiperServerManager, PlaybackController
-├── resources/              # .qrc icon embed, .desktop, PNG
+├── resources/              # icons, .desktop, AppStream metainfo, .qrc
+│   ├── text2sprech.desktop / text2sprech-clipboard.desktop
+│   ├── text2sprech.metainfo.xml
+│   ├── text2sprech.png / icons/text2sprech-*.png
+│   └── text2sprech.qrc
 └── tests/                  # test_sentence_splitter (Qt Test)
 ```
 
@@ -66,7 +70,14 @@ cmake --build build
 ./build/text2sprech
 ```
 
-Server lifecycle: by default the app spawns a unique per-instance socket via `PiperServerManager`. Lookup order for the server binary: `$TEXT2SPRECH_PIPER_SERVER_BIN` → `piper-server` on `PATH` → `python3` + `PIPER_SERVER_SCRIPT_PATH` (compile-time path to `piper_server/server.py`).
+`cmake --install` places the binary, both `.desktop` files, AppStream metainfo, hicolor icons, and `share/text2sprech/piper_server/*.py`.
+
+Server lifecycle: by default the app spawns a unique per-instance socket via `PiperServerManager`. Lookup order for the server:
+
+1. `$TEXT2SPRECH_PIPER_SERVER_BIN`
+2. `piper-server` on `PATH`
+3. `python3` + `../share/text2sprech/piper_server/server.py` relative to the binary (installed layout)
+4. `python3` + `PIPER_SERVER_SCRIPT_PATH` (compile-time source-tree path, dev only)
 
 Attach to an external server: `--piper-socket /path/to.sock` (app must **not** stop that process).
 
