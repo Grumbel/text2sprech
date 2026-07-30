@@ -190,6 +190,12 @@ public:
     void setPresentationKeysEnabled(bool enabled);
     bool presentationKeysEnabled() const { return m_presentationKeysEnabled; }
 
+    // When true (default), highlight updates center the active sentence in
+    // the viewport during playback. Turn off so the user can scroll freely
+    // without the playhead yanking the view back.
+    void setAutoScrollEnabled(bool enabled);
+    bool autoScrollEnabled() const { return m_autoScrollEnabled; }
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -203,6 +209,7 @@ protected:
 
 private:
     void refreshExtraSelections();
+    // No-op when auto-scroll is disabled.
     void centerCursor(const QTextCursor &cursor);
     // Maps a plain-text offset to the sentence that contains it, or -1.
     int sentenceIndexForOffset(int offset) const;
@@ -242,4 +249,5 @@ private:
     int m_extraMarginPercent = kDefaultExtraMarginPercent;
     double m_lineSpacing = kDefaultLineSpacing;
     bool m_presentationKeysEnabled = false;
+    bool m_autoScrollEnabled = true;
 };

@@ -447,8 +447,16 @@ void DocumentView::setHighlightState(HighlightState state)
     refreshExtraSelections();
 }
 
+void DocumentView::setAutoScrollEnabled(bool enabled)
+{
+    m_autoScrollEnabled = enabled;
+}
+
 void DocumentView::centerCursor(const QTextCursor &cursor)
 {
+    if (!m_autoScrollEnabled) {
+        return;
+    }
     const QRect cursorViewportRect = cursorRect(cursor);
     const int viewportMidY = viewport()->height() / 2;
     const int delta = cursorViewportRect.center().y() - viewportMidY;

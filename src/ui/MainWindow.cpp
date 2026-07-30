@@ -631,6 +631,28 @@ void MainWindow::setUpUi()
     });
     addAction(increaseMarginAction);
 
+    // Follow the speaking sentence in the viewport (default on). Uncheck to
+    // scroll freely while audio continues — highlight still updates in place.
+    auto *autoScrollAction = new QAction(
+        themedOrPainted(
+            {QStringLiteral("go-bottom"), QStringLiteral("view-scroll-bottom"),
+             QStringLiteral("transform-move")},
+            style()->standardIcon(QStyle::SP_ArrowDown)),
+        tr("Auto-&Scroll"), this);
+    autoScrollAction->setCheckable(true);
+    autoScrollAction->setChecked(true);
+    autoScrollAction->setToolTip(
+        tr("Keep the current sentence centered while playing. Turn off to "
+           "browse the document without the view jumping."));
+    connect(autoScrollAction, &QAction::toggled, this, [this](bool on) {
+        m_documentView->setAutoScrollEnabled(on);
+        statusBar()->showMessage(
+            on ? tr("Auto-scroll on — following the current sentence")
+               : tr("Auto-scroll off — scroll freely while listening"),
+            3000);
+    });
+    addAction(autoScrollAction);
+
     m_presentationAction = new QAction(
         themedOrPainted(
             {QStringLiteral("view-fullscreen"), QStringLiteral("view-fullscreen-symbolic")},
@@ -717,6 +739,8 @@ void MainWindow::setUpUi()
     viewMenu->addAction(increaseMarginAction);
     viewMenu->addAction(decreaseMarginAction);
     viewMenu->addSeparator();
+    viewMenu->addAction(autoScrollAction);
+    viewMenu->addSeparator();
     viewMenu->addAction(m_presentationAction);
 
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
@@ -775,6 +799,7 @@ void MainWindow::setUpUi()
     m_toolBar->addAction(increaseTextSizeAction);
     m_toolBar->addAction(decreaseMarginAction);
     m_toolBar->addAction(increaseMarginAction);
+    m_toolBar->addAction(autoScrollAction);
 
     m_toolBar->addSeparator();
     m_toolBar->addAction(m_findAction);
