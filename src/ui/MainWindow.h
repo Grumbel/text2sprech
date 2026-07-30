@@ -5,6 +5,7 @@
 
 #include <QClipboard>
 #include <QMainWindow>
+#include <QSettings>
 #include <QVector>
 
 #include "document/Sentence.h"
@@ -39,18 +40,21 @@ public:
         double speed = 1.0;    // 0.5 - 3.0, matches m_speedSpin's range
         bool autoplay = false; // start playback as soon as a document is loaded
         QString initialFile;   // empty = don't open anything on startup
-        // Config-file only for now, no CLI flag. Empty family = leave the
-        // widget's default family alone; pointSize <= 0 = leave the
-        // default size alone. See DocumentView::setBaseFont().
+        // Empty family = leave the widget's default family alone; pointSize
+        // <= 0 = leave the default size alone. See DocumentView::setBaseFont().
+        // Overridable via CLI (--font-family / --font-size) or config.
         QString fontFamily;
         int fontPointSize = -1;
-        // View colors from config (invalid QColor = built-in theme default).
+        // View colors from config or CLI (invalid QColor = built-in theme default).
         DocumentView::Colors colors;
         // Extra text margin (percent of view width, each side) when the
-        // toolbar Margins toggle is on. Config-file only; the toggle itself
-        // is session state.
+        // toolbar Margins toggle is on. CLI --margin / config; the toggle
+        // itself is session state.
         int extraMarginPercent = DocumentView::kDefaultExtraMarginPercent;
         double lineSpacing = DocumentView::kDefaultLineSpacing;
+        // If non-empty, QSettings for startup defaults and Preferences Save
+        // use this .ini path (--config) instead of the default location.
+        QString configPath;
         // Presentation / teleprompter defaults (config [presentation] group).
         // Invalid color channels resolve to DocumentView::presentationDefaults().
         QString presentationFontFamily; // empty → keep reading/session family
@@ -82,6 +86,8 @@ protected:
 
 private slots:
     void openFile();
+    // Classic Save As…: write the current document plain text to a user-chosen path.
+    void saveDocumentAs();
     void togglePlayPause();
     void onSentenceStarted(int sentenceId, int start, int end);
     void onPreparingAudio(int sentenceId);
@@ -182,6 +188,12 @@ private:
     // Accept local file URLs from a drop (window or document view).
     void openDroppedUrls(const QList<QUrl> &urls);
 
+    // QSettings scoped to m_options.configPath when --config was given,
+    // otherwise the default organization .ini under ~/.config/text2sprech/.
+    QSettings makeSettings() const;
+    // Word + UTF-8 byte counts for the status-bar right side (after reindex).
+    void refreshDocumentStats();
+
     // --- Presentation / teleprompter mode ------------------------------------
     // Fullscreen document with presentation colors + larger font; chrome
     // (menu, toolbar, player, status) is hidden. Tab or the context menu
@@ -218,6 +230,7 @@ private:
     QLabel *m_findStatusLabel = nullptr;
     QLabel *m_statusDot = nullptr; // colored circle in the status bar
     QLabel *m_activityLabel = nullptr; // status-bar activity text beside the dot
+    QLabel *m_documentStatsLabel = nullptr; // right side: "N words · M bytes"
     QSlider *m_progressSlider;   // word-based position through the document
     QLabel *m_elapsedLabel;      // estimated listening time so far
     QLabel *m_remainingLabel;    // estimated listening time left (−m:ss)

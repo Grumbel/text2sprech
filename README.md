@@ -51,10 +51,20 @@ baked in at CMake configure time (dev-build convenience only).
 ```
 ./build/text2sprech [options] [file]
 
+--config / -c <path> Load startup defaults from this .ini instead of
+                     ~/.config/text2sprech/text2sprech.ini. Preferences
+                     Save writes back to this path for the session.
 --voice <name>       Select this voice on startup (must match one the server
                      reports; falls back to the server default with a stderr
                      warning if not found).
 --speed <factor>     Initial playback speed, 0.5-3.0 (default 1.0).
+--font-family <name> Document font family for this session.
+--font-size <pt>     Document font point size, 6-72.
+--margin <percent>   Extra horizontal margin each side (0-40 % of view width).
+--line-spacing <x>   Line height multiplier (e.g. 1.0, 1.5).
+--color-text / --color-background / --color-playing /
+--color-preparing / --color-stopped / --color-hover
+                     Session color overrides (#RRGGBB or #AARRGGBB).
 --autoplay           Start playback automatically as soon as a document is
                      loaded (via Open…, Paste, or the [file] argument).
 --piper-socket <path> Connect to an already-running piper-server at this

@@ -2,6 +2,12 @@
 
 This file orients automated agents working on **text2sprech**. Prefer it over guessing from partial file views. User-facing detail and design history live in `README.md`; the wire format is authoritative in `PROTOCOL.md`.
 
+## TODO.md and commits
+
+- Track unfinished product work in **`TODO.md`** (checkbox list). When you complete an item, mark it `[x]` in the same change set.
+- Prefer implementing or updating TODO items before inventing unrelated scope.
+- **Every larger change** (feature, protocol tweak, multi-file refactor, or a batch of TODO items) should end with a **detailed git commit message** in the agent’s final answer: subject line + body explaining *why*, what files/areas moved, and any follow-ups or intentional non-goals. Agents should not rely on a one-line “fix bug” summary for multi-file work.
+
 ## What this project is
 
 Local **text-to-speech reader**: open or paste text/HTML, split into sentences, synthesize with **Piper**, play with **live sentence highlighting**, seek/prev/next, voice and speed controls.
@@ -21,6 +27,7 @@ text2sprech/
 ├── flake.nix / flake.lock  # Nix packages, dev shell, optional bundled voice
 ├── PROTOCOL.md             # Client ↔ server message schema (source of truth)
 ├── README.md               # Features, CLI, config, design notes
+├── TODO.md                 # Open product checklist (mark done when shipped)
 ├── REUSE.toml              # SPDX annotations for non-source assets
 ├── piper_server/           # Python server (tested without Qt)
 │   ├── server.py           # asyncio Unix socket server
@@ -113,7 +120,7 @@ Preference order: `PiperPythonBackend` → `PiperCliBackend` → `SilentTestBack
 | `[startup]` in ini | Defaults: voice, speed, fontFamily, fontPointSize, optional color* |
 | `[voices] extraDirs` | Extra model directories (restart to apply) |
 | `[recent]`, `[positions]` | Recent paths; base64url path keys → sentence index |
-| CLI `--voice`, `--speed`, `--autoplay`, `--piper-socket`, `--paste-*`, `[file]`/`-` | Session overrides; load deferred until server `ready` |
+| CLI `--voice`, `--speed`, `--autoplay`, `--piper-socket`, `--paste-*`, `--config`, `--font-family`, `--font-size`, `--margin`, `--line-spacing`, `--color-*`, `[file]`/`-` | Session overrides; load deferred until server `ready`. `--config` seeds startup from an alternate `.ini` and Preferences Save writes there. |
 
 Voice models: `~/.local/share/text2sprech/voices/` (`Name.onnx` + `Name.onnx.json`), also `~/.local/share/piper/voices/`, env `TEXT2SPRECH_PIPER_MODELS`, Preferences extra dirs.
 

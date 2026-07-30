@@ -19,6 +19,8 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QIcon>
+#include <QIODevice>
+#include <QStringConverter>
 #include <QPixmap>
 #include <QPainter>
 #include <QKeySequence>
@@ -531,6 +533,14 @@ void MainWindow::setUpUi()
         pasteFromSource(QClipboard::Clipboard);
     });
 
+    auto *saveAsAction = new QAction(
+        themeIcon(QStringLiteral("document-save-as"), style()->standardIcon(QStyle::SP_DialogSaveButton)),
+        tr("Save &As…"), this);
+    saveAsAction->setToolTip(tr("Save the current document text to a file"));
+    saveAsAction->setShortcut(QKeySequence::SaveAs);
+    connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveDocumentAs);
+    addAction(saveAsAction);
+
     auto *quitAction = new QAction(
         themeIcon(QStringLiteral("application-exit"), style()->standardIcon(QStyle::SP_DialogCloseButton)),
         tr("&Quit"), this);
@@ -630,6 +640,8 @@ void MainWindow::setUpUi()
     fileMenu->addAction(m_openAction);
     fileMenu->addMenu(m_recentMenu);
     fileMenu->addSeparator();
+    fileMenu->addAction(saveAsAction);
+    fileMenu->addSeparator();
     fileMenu->addAction(quitAction);
 
     QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
@@ -664,6 +676,7 @@ void MainWindow::setUpUi()
         openButton->setMenu(m_recentMenu);
         openButton->setPopupMode(QToolButton::MenuButtonPopup);
     }
+    m_toolBar->addAction(saveAsAction);
     m_toolBar->addAction(copyAction);
     m_toolBar->addAction(pasteClipboardAction);
     m_toolBar->addSeparator();
@@ -937,9 +950,10 @@ void MainWindow::setUpUi()
     centralLayout->addWidget(m_playerBar);
     setCentralWidget(central);
 
-    // Status bar: green (or state-colored) dot + activity text, matching the
-    // reference "● Ready" presentation. Transient statusBar()->showMessage()
-    // popups still temporarily cover this normal area.
+    // Status bar: green (or state-colored) dot + activity text on the left
+    // (reference "● Ready"), word/byte counts permanently on the right.
+    // Transient statusBar()->showMessage() popups still temporarily cover
+    // the left normal area; permanent widgets on the right stay visible.
     auto *statusWidget = new QWidget(this);
     auto *statusLayout = new QHBoxLayout(statusWidget);
     statusLayout->setContentsMargins(4, 0, 0, 0);
@@ -952,6 +966,12 @@ void MainWindow::setUpUi()
     statusLayout->addWidget(m_activityLabel, 0, Qt::AlignVCenter);
     statusLayout->addStretch(1);
     statusBar()->addWidget(statusWidget, /*stretch=*/1);
+
+    m_documentStatsLabel = new QLabel(this);
+    m_documentStatsLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_documentStatsLabel->setContentsMargins(8, 0, 8, 0);
+    m_documentStatsLabel->setToolTip(tr("Word count and UTF-8 byte size of the document"));
+    statusBar()->addPermanentWidget(m_documentStatsLabel);
     setActivity(tr("Starting…"), ActivityKind::Idle);
 
     // Visible immediately while the piper-server connects; replaced if
@@ -1026,6 +1046,43 @@ void MainWindow::openFile()
         return;
     }
     openFilePath(path);
+}
+
+void MainWindow::saveDocumentAs()
+{
+    // Always export the rendered plain text (same source as sentence
+    // offsets). HTML documents are saved as .txt of their visible text;
+    // re-opening that file loads as plain text, which matches a reader
+    // export rather than a full HTML round-trip.
+    const QString suggested = m_currentDocumentPath.isEmpty()
+        ? QStringLiteral("document.txt")
+        : QFileInfo(m_currentDocumentPath).completeBaseName() + QStringLiteral(".txt");
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Save As"), suggested,
+        tr("Text files (*.txt);;All files (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        QMessageBox::warning(this, tr("Save failed"), file.errorString());
+        return;
+    }
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    stream << m_documentView->document()->toPlainText();
+    if (stream.status() != QTextStream::Ok) {
+        QMessageBox::warning(this, tr("Save failed"), tr("Could not write the full document."));
+        return;
+    }
+    const QString resolved = canonicalizePath(path);
+    setCurrentDocumentPath(resolved.isEmpty() ? path : resolved);
+    if (!m_currentDocumentPath.isEmpty()) {
+        addToRecentFiles(m_currentDocumentPath);
+        setWindowTitle(tr("%1 — text2sprech").arg(QFileInfo(m_currentDocumentPath).fileName()));
+        saveCurrentPosition();
+    }
+    statusBar()->showMessage(tr("Saved %1").arg(QFileInfo(path).fileName()), 4000);
 }
 
 void MainWindow::openFilePath(const QString &path)
@@ -1220,6 +1277,34 @@ void MainWindow::reindexSentences()
     m_currentSentenceIndex = -1; // no position yet in the freshly (re)loaded document
     m_intraSentenceFraction = 0.0;
     refreshProgress();
+    refreshDocumentStats();
+}
+
+void MainWindow::refreshDocumentStats()
+{
+    if (!m_documentStatsLabel) {
+        return;
+    }
+    const QString plain = m_documentView ? m_documentView->document()->toPlainText() : QString();
+    const int words = countWords(plain);
+    const qsizetype bytes = plain.toUtf8().size();
+    // Compact right-side permanent status: "1,234 words · 5,678 bytes"
+    m_documentStatsLabel->setText(
+        tr("%1 words · %2 bytes")
+            .arg(words)
+            .arg(bytes));
+    m_documentStatsLabel->setToolTip(
+        tr("%1 words, %2 UTF-8 bytes in the current document")
+            .arg(words)
+            .arg(bytes));
+}
+
+QSettings MainWindow::makeSettings() const
+{
+    if (!m_options.configPath.isEmpty()) {
+        return QSettings(m_options.configPath, QSettings::IniFormat);
+    }
+    return QSettings();
 }
 
 int MainWindow::sentenceIndexForOffset(int offset) const
@@ -1794,7 +1879,7 @@ void MainWindow::setPlaybackEnabled(bool enabled)
 void MainWindow::openPreferences()
 {
     // Seed from saved startup defaults (config file), not the live session.
-    QSettings settings;
+    QSettings settings = makeSettings();
     settings.beginGroup(QStringLiteral("startup"));
 
     auto readColor = [&settings](const QString &key) {
@@ -2225,6 +2310,8 @@ void MainWindow::rebuildRecentMenu()
 
 QStringList MainWindow::loadRecentFiles()
 {
+    // Recent files always use the default org config so a one-off --config
+    // profile does not hide the user's normal recent list.
     QSettings settings;
     settings.beginGroup(QStringLiteral("recent"));
     QStringList files = settings.value(QStringLiteral("files")).toStringList();
@@ -2256,6 +2343,7 @@ int MainWindow::loadSavedSentenceIndex(const QString &path)
     if (path.isEmpty()) {
         return -1;
     }
+    // Reading positions stay on the default org config (same as recent files).
     QSettings settings;
     settings.beginGroup(QStringLiteral("positions"));
     const QVariant v = settings.value(positionSettingsKey(path));

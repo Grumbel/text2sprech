@@ -1,4 +1,4 @@
-- [ ] include a word and byte count in the bottom right in the status bar
-- [ ] allow margins, font and all other properties be customized via command line
-- [ ] add an option to load a custom config file
-- [ ] Add classic "Save as" button and menu entry to save the current text
+- [x] include a word and byte count in the bottom right in the status bar
+- [x] allow margins, font and all other properties be customized via command line
+- [x] add an option to load a custom config file
+- [x] Add classic "Save as" button and menu entry to save the current text
