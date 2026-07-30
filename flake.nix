@@ -111,6 +111,7 @@
               test -f "$out/share/metainfo/text2sprech.metainfo.xml"
               test -f "$out/share/icons/hicolor/48x48/apps/text2sprech.png"
               test -f "$out/share/icons/hicolor/512x512/apps/text2sprech.png"
+              test -f "$out/share/text2sprech/piper_server/server.py"
             '';
             qtWrapperArgs = [
               "--prefix" "PATH" ":" "${server}/bin"

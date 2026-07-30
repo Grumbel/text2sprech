@@ -55,9 +55,9 @@
   </recommends>
   <!-- Version comes from packaging; releases can be filled at tag time. -->
   <releases>
-    <release version="0.1.0" date="2026-07-30" type="development">
+    <release version="0.1.0-dev" date="2026-07-30" type="development">
       <description>
-        <p>Initial public development release candidate.</p>
+        <p>Development snapshot; drop the -dev suffix in VERSION when tagging v0.1.0.</p>
       </description>
     </release>
   </releases>

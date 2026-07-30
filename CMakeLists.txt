@@ -70,6 +70,16 @@ target_link_libraries(text2sprech PRIVATE
 
 install(TARGETS text2sprech RUNTIME DESTINATION bin)
 
+# Python piper-server modules for non-Nix installs (PATH still preferred when
+# a `piper-server` wrapper exists). Resolved at runtime relative to the binary.
+install(DIRECTORY piper_server/
+  DESTINATION share/text2sprech/piper_server
+  FILES_MATCHING
+    PATTERN "*.py"
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
+)
+
 # Desktop integration: app menu entry + icon theme lookup. The icon is also
 # embedded into the binary itself via resources/text2sprech.qrc (AUTORCC)
 # for cases where icon-theme lookup doesn't apply, e.g. running the binary

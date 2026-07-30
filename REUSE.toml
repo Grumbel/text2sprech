@@ -30,7 +30,6 @@ path = [
     "resources/icons/text2sprech-128.png",
     "resources/icons/text2sprech-256.png",
     "resources/icons/text2sprech-512.png",
-    "text2sprech.png",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Ingo Ruhnke <grumbel@gmail.com>"

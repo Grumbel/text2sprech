@@ -97,11 +97,25 @@ QString PiperServerManager::findServerCommand(QStringList *argsOut)
         return onPath;
     }
 
-    // 3. Dev-tree fallback: run the script directly with python3, using the
-    //    source location baked in at configure time (see CMakeLists.txt).
-    //    Won't exist in an installed/packaged build -- options 1/2 are
-    //    meant to cover that case; this is just so `cmake --build build &&
-    //    ./build/text2sprech` works out of the box while developing.
+    // 3. Packaged layout next to the binary:
+    //    <prefix>/bin/text2sprech → <prefix>/share/text2sprech/piper_server/server.py
+    //    (cmake install places the Python modules there for non-Nix installs;
+    //    the flake still prefers PATH via option 2).
+    {
+        const QString packaged = QDir(QCoreApplication::applicationDirPath())
+                                     .filePath(QStringLiteral("../share/text2sprech/piper_server/server.py"));
+        if (QFileInfo::exists(packaged)) {
+            QString python3 = QStandardPaths::findExecutable(QStringLiteral("python3"));
+            if (!python3.isEmpty()) {
+                *argsOut << QFileInfo(packaged).absoluteFilePath();
+                return python3;
+            }
+        }
+    }
+
+    // 4. Dev-tree fallback: source path baked in at configure time
+    //    (CMakeLists.txt) so `cmake --build && ./build/text2sprech` works
+    //    without installing.
 #ifdef PIPER_SERVER_SCRIPT_PATH
     QString script = QStringLiteral(PIPER_SERVER_SCRIPT_PATH);
     if (QFileInfo::exists(script)) {
