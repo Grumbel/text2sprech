@@ -83,6 +83,8 @@ protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
     void changeEvent(QEvent *event) override;
+    // Space play/pause (except real text fields), Enter on speed, click chrome.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void openFile();
@@ -107,6 +109,11 @@ private slots:
 private:
     void setUpUi();
     void setUpShortcuts();
+    // Return keyboard focus to the document so Space / arrows work again.
+    void focusDocumentView();
+    // True when Space should insert a character (find field, editable text)
+    // rather than toggle playback.
+    static bool widgetNeedsLiteralSpace(QWidget *widget);
     // Syncs play/pause action icon + text + tooltip with playback state.
     void setPlayingUi(bool playing);
     void loadDocumentText(const QString &plainOrHtml, bool isHtml);

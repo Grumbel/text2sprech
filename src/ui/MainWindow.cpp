@@ -24,10 +24,15 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QKeySequence>
+#include <QAbstractButton>
+#include <QAbstractSpinBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QKeyEvent>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPlainTextEdit>
+#include <QTextEdit>
 #include <QContextMenuEvent>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -210,6 +215,10 @@ MainWindow::MainWindow(const Options &options, QWidget *parent)
 
     setUpUi();
     setUpShortcuts();
+
+    // App-wide filter so Space reaches us even when the speed spin or voice
+    // combo has focus (those widgets would otherwise consume the key).
+    qApp->installEventFilter(this);
 
     connect(m_piperClient, &PiperClient::ready, this, &MainWindow::onServerReady);
     connect(m_piperClient, &PiperClient::ready, this, [this](const PiperServerInfo &info) {
@@ -792,6 +801,8 @@ void MainWindow::setUpUi()
     m_speedSpin->setValue(m_options.speed);
     m_speedSpin->blockSignals(false);
     connect(m_speedSpin, &QDoubleSpinBox::valueChanged, this, &MainWindow::onSpeedChanged);
+    // Enter / Return commits and returns focus to the document (Space works again).
+    m_speedSpin->installEventFilter(this);
     m_toolBar->addWidget(m_speedSpin);
 
     m_toolBar->addSeparator();
@@ -812,6 +823,9 @@ void MainWindow::setUpUi()
     toolBarSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_toolBar->addWidget(toolBarSpacer);
     m_toolBar->addAction(m_presentationAction);
+    // Click empty toolbar chrome (spacer, labels, bare toolbar) → document focus.
+    m_toolBar->installEventFilter(this);
+    toolBarSpacer->installEventFilter(this);
 
     connect(m_documentView, &DocumentView::previousSentenceRequested, this, [this] {
         jumpToSentence(m_currentSentenceIndex < 0 ? 0 : m_currentSentenceIndex - 1);
@@ -1039,6 +1053,8 @@ void MainWindow::setUpUi()
 
     playerColumn->addWidget(transportRow);
     centralLayout->addWidget(m_playerBar);
+    // Click empty player-bar chrome → document focus (sliders/buttons still work).
+    m_playerBar->installEventFilter(this);
     setCentralWidget(central);
 
     // Status bar: green (or state-colored) dot + activity text on the left
@@ -1081,12 +1097,106 @@ void MainWindow::connectToPiperServer(const QString &socketPath)
     m_piperClient->connectToServer(socketPath);
 }
 
+void MainWindow::focusDocumentView()
+{
+    if (m_documentView) {
+        m_documentView->setFocus(Qt::OtherFocusReason);
+    }
+}
+
+bool MainWindow::widgetNeedsLiteralSpace(QWidget *widget)
+{
+    // Walk ancestors: focus is often on an inner line-edit of a composite.
+    for (QWidget *w = widget; w; w = w->parentWidget()) {
+        if (auto *lineEdit = qobject_cast<QLineEdit *>(w)) {
+            if (lineEdit->isReadOnly()) {
+                return false;
+            }
+            // Spin box / combo internal editors: Space is not used for input.
+            if (qobject_cast<QAbstractSpinBox *>(lineEdit->parentWidget())
+                || qobject_cast<QComboBox *>(lineEdit->parentWidget())) {
+                return false;
+            }
+            return true; // e.g. find bar
+        }
+        if (auto *plain = qobject_cast<QPlainTextEdit *>(w)) {
+            return !plain->isReadOnly();
+        }
+        if (auto *text = qobject_cast<QTextEdit *>(w)) {
+            // DocumentView is read-only; Space means play/pause there.
+            return !text->isReadOnly();
+        }
+    }
+    return false;
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+
+        // Speed spin (or its internal line edit): Enter/Return returns focus
+        // so subsequent Space hits play/pause instead of the spin.
+        if ((ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter)
+            && (ke->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+            for (QObject *o = watched; o; o = o->parent()) {
+                if (o == m_speedSpin) {
+                    focusDocumentView();
+                    break; // still let the spin box interpret the key
+                }
+            }
+        }
+
+        // Space → play/pause unless a real text field needs a literal space.
+        if (ke->key() == Qt::Key_Space
+            && (ke->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+            // Only when this main window is the active one (not a modal dialog).
+            if (isActiveWindow()) {
+                QWidget *fw = QApplication::focusWidget();
+                if (!widgetNeedsLiteralSpace(fw)) {
+                    togglePlayPause();
+                    return true;
+                }
+            }
+        }
+    }
+
+    if (event->type() == QEvent::MouseButtonPress) {
+        auto *me = static_cast<QMouseEvent *>(event);
+        if (me->button() == Qt::LeftButton
+            && (watched == m_toolBar || watched == m_playerBar
+                || (m_toolBar && watched->parent() == m_toolBar))) {
+            auto *host = qobject_cast<QWidget *>(watched);
+            if (host) {
+                QWidget *child = host->childAt(me->position().toPoint());
+                // Empty chrome, spacer, or static labels — not interactive controls.
+                const bool emptyChrome = (child == nullptr) || qobject_cast<QLabel *>(child)
+                    || (child->focusPolicy() == Qt::NoFocus
+                        && !qobject_cast<QAbstractButton *>(child)
+                        && !qobject_cast<QSlider *>(child)
+                        && !qobject_cast<QComboBox *>(child)
+                        && !qobject_cast<QAbstractSpinBox *>(child)
+                        && !qobject_cast<QLineEdit *>(child));
+                // Tool buttons are QAbstractButton; skip those.
+                if (emptyChrome && !qobject_cast<QAbstractButton *>(child)
+                    && !qobject_cast<QSlider *>(child)
+                    && !qobject_cast<QComboBox *>(child)
+                    && !qobject_cast<QAbstractSpinBox *>(child)) {
+                    focusDocumentView();
+                }
+            }
+        }
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
 void MainWindow::setUpShortcuts()
 {
-    auto *playPause = new QAction(this);
-    playPause->setShortcut(Qt::Key_Space);
-    connect(playPause, &QAction::triggered, this, &MainWindow::togglePlayPause);
-    addAction(playPause);
+    // Space play/pause is handled in eventFilter (app-wide) so it still works
+    // when the speed spin or voice combo has focus. A QAction shortcut would
+    // lose to those widgets. Find-bar typing still gets literal Space via
+    // widgetNeedsLiteralSpace().
 
     // Speed: ] / > faster; [ / < slower (mpv brackets + YouTube angle keys).
     // Bare + / − are not bound here — they collide with Ctrl++ / Ctrl+− zoom
