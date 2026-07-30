@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Speak Clipboard
+GenericName=Speak Clipboard with text2sprech
+Comment=Read the current clipboard aloud with text2sprech
+Exec=text2sprech --paste-clipboard --autoplay
+Icon=text2sprech
+Terminal=false
+StartupNotify=true
+# No MimeType: this entry is a one-shot launcher, not an "Open with" handler.
+Categories=Utility;Accessibility;AudioVideo;
+Keywords=tts;speech;clipboard;paste;accessibility;piper;text2sprech;
+# Distinct binary id so panels/taskbars do not merge this with the main app.
+StartupWMClass=text2sprech
+X-License=GPL-3.0-or-later

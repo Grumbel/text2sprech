@@ -8,7 +8,14 @@ Exec=text2sprech %f
 Icon=text2sprech
 Terminal=false
 StartupNotify=true
+StartupWMClass=text2sprech
 Categories=Utility;Accessibility;AudioVideo;
 MimeType=text/plain;text/html;
 Keywords=tts;speech;accessibility;audiobook;piper;
+# Right-click on the launcher / menu entry (Desktop Entry Spec “Actions”).
+Actions=speak-clipboard;
 X-License=GPL-3.0-or-later
+
+[Desktop Action speak-clipboard]
+Name=Speak Clipboard
+Exec=text2sprech --paste-clipboard --autoplay

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <QApplication>
+#include <QGuiApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QDebug>
@@ -194,6 +195,9 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName("text2sprech");
     QApplication::setOrganizationName("text2sprech");
+    // Ties the window to resources/text2sprech.desktop (icon grouping on
+    // GNOME/KDE when the package is installed).
+    QGuiApplication::setDesktopFileName(QStringLiteral("text2sprech"));
     // TEXT2SPRECH_VERSION comes from the top-level VERSION file via CMake
     // (or -DPROJECT_VERSION_FULL from the flake, which may append +g<rev>).
 #ifndef TEXT2SPRECH_VERSION

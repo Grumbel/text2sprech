@@ -74,7 +74,10 @@ install(TARGETS text2sprech RUNTIME DESTINATION bin)
 # embedded into the binary itself via resources/text2sprech.qrc (AUTORCC)
 # for cases where icon-theme lookup doesn't apply, e.g. running the binary
 # directly during development rather than through a desktop launcher.
-install(FILES resources/text2sprech.desktop DESTINATION share/applications)
+install(FILES
+    resources/text2sprech.desktop
+    resources/text2sprech-clipboard.desktop
+  DESTINATION share/applications)
 install(FILES resources/text2sprech.png
     DESTINATION share/icons/hicolor/512x512/apps
     RENAME text2sprech.png
