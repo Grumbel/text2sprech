@@ -22,6 +22,7 @@
 #include <cstring>
 
 #include "speech/PiperClient.h"
+#include "speech/PlaybackController.h"
 
 namespace {
 
@@ -157,11 +158,13 @@ ExportAudioDialog::ExportAudioDialog(PiperClient *client, const QVector<Sentence
     }
 
     m_speedSpin = new QDoubleSpinBox(this);
-    m_speedSpin->setRange(0.5, 3.0);
+    m_speedSpin->setRange(PlaybackController::kMinSpeed, PlaybackController::kMaxSpeed);
     m_speedSpin->setSingleStep(0.25);
     m_speedSpin->setDecimals(2);
     m_speedSpin->setSuffix(tr("×"));
-    m_speedSpin->setValue(speed >= 0.5 && speed <= 3.0 ? speed : 1.0);
+    m_speedSpin->setValue(
+        speed >= PlaybackController::kMinSpeed && speed <= PlaybackController::kMaxSpeed ? speed
+                                                                                         : 1.0);
 
     m_progress = new QProgressBar(this);
     m_progress->setRange(0, qMax(1, sentences.size()));

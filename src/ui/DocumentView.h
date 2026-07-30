@@ -70,6 +70,9 @@ public:
     // Default point size used when entering presentation mode (family is
     // kept from the current session font).
     static constexpr int kPresentationFontPointSize = 28;
+    // Session / Preferences / CLI document font point size.
+    static constexpr int kMinFontPointSize = 6;
+    static constexpr int kMaxFontPointSize = 200;
 
     explicit DocumentView(QWidget *parent = nullptr);
 

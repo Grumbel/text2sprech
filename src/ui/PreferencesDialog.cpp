@@ -3,6 +3,8 @@
 
 #include "PreferencesDialog.h"
 
+#include "speech/PlaybackController.h"
+
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -62,7 +64,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_speedSpin = new QDoubleSpinBox(this);
     m_speedSpin->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
     m_speedSpin->setMinimumWidth(120);
-    m_speedSpin->setRange(0.5, 3.0);
+    m_speedSpin->setRange(PlaybackController::kMinSpeed, PlaybackController::kMaxSpeed);
     m_speedSpin->setSingleStep(0.25);
     m_speedSpin->setSuffix(tr("x"));
     m_speedSpin->setValue(defaultSpeed);
@@ -75,7 +77,7 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_fontSizeSpin = new QSpinBox(this);
     m_fontSizeSpin->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_fontSizeSpin->setMinimumWidth(90);
-    m_fontSizeSpin->setRange(6, 72);
+    m_fontSizeSpin->setRange(DocumentView::kMinFontPointSize, DocumentView::kMaxFontPointSize);
     m_fontSizeSpin->setSuffix(tr(" pt"));
     m_fontSizeSpin->setValue(defaultFont.pointSize() > 0 ? defaultFont.pointSize() : 12);
 
@@ -211,14 +213,16 @@ PreferencesDialog::PreferencesDialog(const QStringList &availableVoices, const Q
     m_presentationFontSizeSpin = new QSpinBox(this);
     m_presentationFontSizeSpin->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_presentationFontSizeSpin->setMinimumWidth(90);
-    m_presentationFontSizeSpin->setRange(6, 72);
+    m_presentationFontSizeSpin->setRange(DocumentView::kMinFontPointSize,
+                                         DocumentView::kMaxFontPointSize);
     m_presentationFontSizeSpin->setSuffix(tr(" pt"));
     m_presentationFontSizeSpin->setToolTip(
         tr("Font used while Presentation Mode is active."));
     m_presentationFontSizeSpin->setValue(
-        qBound(6, presentation.fontPointSize > 0 ? presentation.fontPointSize
-                                                 : DocumentView::kPresentationFontPointSize,
-              72));
+        qBound(DocumentView::kMinFontPointSize,
+              presentation.fontPointSize > 0 ? presentation.fontPointSize
+                                             : DocumentView::kPresentationFontPointSize,
+              DocumentView::kMaxFontPointSize));
 
     auto *presentationFontRow = new QWidget(this);
     auto *presentationFontRowLayout = new QHBoxLayout(presentationFontRow);

@@ -11,6 +11,7 @@
 #include <QColor>
 #include <QSettings>
 
+#include "speech/PlaybackController.h"
 #include "ui/MainWindow.h"
 
 namespace {
@@ -78,21 +79,25 @@ FileConfig loadFileConfig(const QString &configPath = QString())
 
     bool speedOk = false;
     double speed = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
-    if (speedOk && speed >= 0.5 && speed <= 3.0) {
+    if (speedOk && speed >= PlaybackController::kMinSpeed
+        && speed <= PlaybackController::kMaxSpeed) {
         config.speed = speed;
     } else if (settings.contains(QStringLiteral("speed"))) {
         qWarning().noquote() << "Config: invalid speed value" << settings.value(QStringLiteral("speed"))
-                              << "(expected 0.5-3.0); using 1.0";
+                              << "(expected" << PlaybackController::kMinSpeed << "-"
+                              << PlaybackController::kMaxSpeed << "); using 1.0";
     }
 
     bool sizeOk = false;
     int pointSize = settings.value(QStringLiteral("fontPointSize"), -1).toInt(&sizeOk);
-    if (sizeOk && pointSize >= 6 && pointSize <= 72) {
+    if (sizeOk && pointSize >= DocumentView::kMinFontPointSize
+        && pointSize <= DocumentView::kMaxFontPointSize) {
         config.fontPointSize = pointSize;
     } else if (settings.contains(QStringLiteral("fontPointSize"))) {
         qWarning().noquote() << "Config: invalid fontPointSize value"
                               << settings.value(QStringLiteral("fontPointSize"))
-                              << "(expected 6-72); using the widget default";
+                              << "(expected" << DocumentView::kMinFontPointSize << "-"
+                              << DocumentView::kMaxFontPointSize << "); using the widget default";
     }
 
     config.colors.text = readColorKey(settings, QStringLiteral("colorText"));
@@ -141,12 +146,14 @@ FileConfig loadFileConfig(const QString &configPath = QString())
     const int presPs = settings.value(QStringLiteral("fontPointSize"),
                                       DocumentView::kPresentationFontPointSize)
                            .toInt(&presSizeOk);
-    if (presSizeOk && presPs >= 6 && presPs <= 72) {
+    if (presSizeOk && presPs >= DocumentView::kMinFontPointSize
+        && presPs <= DocumentView::kMaxFontPointSize) {
         config.presentationFontPointSize = presPs;
     } else if (settings.contains(QStringLiteral("fontPointSize"))) {
         qWarning().noquote() << "Config: invalid presentation fontPointSize value"
                               << settings.value(QStringLiteral("fontPointSize"))
-                              << "(expected 6-72); using"
+                              << "(expected" << DocumentView::kMinFontPointSize << "-"
+                              << DocumentView::kMaxFontPointSize << "); using"
                               << DocumentView::kPresentationFontPointSize;
     }
     bool presMarginOk = false;
@@ -276,8 +283,10 @@ int main(int argc, char *argv[])
         "name", fileConfig.voice);
     QCommandLineOption speedOption(
         QStringList() << "speed",
-        "Initial playback speed, 0.5-3.0. Defaults to the config file's "
-        "[startup] speed if set, otherwise 1.0.",
+        QStringLiteral("Initial playback speed, %1-%2. Defaults to the config file's "
+                       "[startup] speed if set, otherwise 1.0.")
+            .arg(PlaybackController::kMinSpeed)
+            .arg(PlaybackController::kMaxSpeed),
         "factor", QString::number(fileConfig.speed));
     QCommandLineOption autoplayOption(
         QStringList() << "autoplay",
@@ -304,7 +313,9 @@ int main(int argc, char *argv[])
         "name", fileConfig.fontFamily);
     QCommandLineOption fontSizeOption(
         QStringList() << "font-size",
-        "Document font point size, 6-72 (overrides config [startup] fontPointSize).",
+        QStringLiteral("Document font point size, %1-%2 (overrides config [startup] fontPointSize).")
+            .arg(DocumentView::kMinFontPointSize)
+            .arg(DocumentView::kMaxFontPointSize),
         "pt",
         fileConfig.fontPointSize > 0 ? QString::number(fileConfig.fontPointSize) : QString());
     QCommandLineOption marginOption(
@@ -372,10 +383,12 @@ int main(int argc, char *argv[])
 
     bool speedOk = false;
     double speed = parser.value(speedOption).toDouble(&speedOk);
-    if (!speedOk || speed < 0.5 || speed > 3.0) {
+    if (!speedOk || speed < PlaybackController::kMinSpeed
+        || speed > PlaybackController::kMaxSpeed) {
         if (parser.isSet(speedOption)) {
             qWarning().noquote() << "Invalid --speed value" << parser.value(speedOption)
-                                  << "(expected 0.5-3.0); using 1.0";
+                                  << "(expected" << PlaybackController::kMinSpeed << "-"
+                                  << PlaybackController::kMaxSpeed << "); using 1.0";
         }
         speed = 1.0;
     }
@@ -392,11 +405,13 @@ int main(int argc, char *argv[])
     if (parser.isSet(fontSizeOption)) {
         bool sizeOk = false;
         const int pt = parser.value(fontSizeOption).toInt(&sizeOk);
-        if (sizeOk && pt >= 6 && pt <= 72) {
+        if (sizeOk && pt >= DocumentView::kMinFontPointSize
+            && pt <= DocumentView::kMaxFontPointSize) {
             options.fontPointSize = pt;
         } else {
             qWarning().noquote() << "Invalid --font-size value" << parser.value(fontSizeOption)
-                                  << "(expected 6-72); ignoring";
+                                  << "(expected" << DocumentView::kMinFontPointSize << "-"
+                                  << DocumentView::kMaxFontPointSize << "); ignoring";
             options.fontPointSize = fileConfig.fontPointSize;
         }
     } else {

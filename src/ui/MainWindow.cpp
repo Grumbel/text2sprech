@@ -791,7 +791,7 @@ void MainWindow::setUpUi()
 
     m_toolBar->addWidget(new QLabel(tr("  Speed: "), m_toolBar));
     m_speedSpin = new QDoubleSpinBox(m_toolBar);
-    m_speedSpin->setRange(0.5, 3.0);
+    m_speedSpin->setRange(PlaybackController::kMinSpeed, PlaybackController::kMaxSpeed);
     m_speedSpin->setSingleStep(0.25);
     m_speedSpin->setDecimals(2);
     m_speedSpin->setSuffix(tr("×"));
@@ -2170,11 +2170,17 @@ void MainWindow::openPreferences()
     const QString defaultVoice = settings.value(QStringLiteral("voice")).toString();
     bool speedOk = false;
     const double s = settings.value(QStringLiteral("speed"), 1.0).toDouble(&speedOk);
-    const double defaultSpeed = (speedOk && s >= 0.5 && s <= 3.0) ? s : 1.0;
+    const double defaultSpeed =
+        (speedOk && s >= PlaybackController::kMinSpeed && s <= PlaybackController::kMaxSpeed)
+            ? s
+            : 1.0;
     const QString defaultFamily = settings.value(QStringLiteral("fontFamily")).toString();
     bool sizeOk = false;
     const int ps = settings.value(QStringLiteral("fontPointSize"), 12).toInt(&sizeOk);
-    const int defaultPointSize = (sizeOk && ps >= 6 && ps <= 72) ? ps : 12;
+    const int defaultPointSize =
+        (sizeOk && ps >= DocumentView::kMinFontPointSize && ps <= DocumentView::kMaxFontPointSize)
+            ? ps
+            : 12;
 
     DocumentView::Colors defaultColors;
     defaultColors.text = readColor(QStringLiteral("colorText"));
@@ -2217,7 +2223,9 @@ void MainWindow::openPreferences()
     presentationDefaults.fontFamily =
         settings.value(QStringLiteral("fontFamily")).toString().trimmed();
     presentationDefaults.fontPointSize =
-        (presSizeOk && presPs >= 6 && presPs <= 72) ? presPs
+        (presSizeOk && presPs >= DocumentView::kMinFontPointSize
+         && presPs <= DocumentView::kMaxFontPointSize)
+            ? presPs
                                                     : DocumentView::kPresentationFontPointSize;
     bool presMarginOk = false;
     const int presMargin = settings.value(QStringLiteral("extraMarginPercent"),

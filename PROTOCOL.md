@@ -26,7 +26,7 @@ for v1 simplicity; see "Future work" below).
 {"type": "stop", "id": 123}          // cancel a specific in-flight request
 {"type": "stop_all"}                  // flush the whole queue
 {"type": "set_voice", "voice": "en_US-lessac-medium"}
-{"type": "set_speed", "speed": 1.25}  // 0.5 - 3.0
+{"type": "set_speed", "speed": 1.25}  // UI range 0.5–5.0; server accepts any positive factor
 {"type": "list_voices"}
 {"type": "shutdown"}
 ```

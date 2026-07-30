@@ -113,9 +113,9 @@ text2sprech [options] [file]
 |--------|---------|
 | `--config` / `-c` *path* | Use this `.ini` for startup defaults (and Preferences Save) |
 | `--voice` *name* | Initial voice (must be known to the server) |
-| `--speed` *factor* | Initial speed, 0.5–3.0 (default 1.0) |
+| `--speed` *factor* | Initial speed, 0.5–5.0 (default 1.0) |
 | `--font-family` *name* | Document font family |
-| `--font-size` *pt* | Document font size, 6–72 |
+| `--font-size` *pt* | Document font size, 6–200 |
 | `--margin` *percent* | Extra horizontal margin each side (0–40) |
 | `--line-spacing` *x* | Line height multiplier (e.g. 1.0, 1.5) |
 | `--color-text`, `--color-background`, `--color-playing`, `--color-preparing`, `--color-stopped`, `--color-hover` | Session colors (`#RRGGBB` or `#AARRGGBB`) |

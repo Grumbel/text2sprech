@@ -37,7 +37,7 @@ public:
     // Command-line-configurable startup behavior (see main.cpp for parsing).
     struct Options {
         QString voice;         // empty = use server's default voice
-        double speed = 1.0;    // 0.5 - 3.0, matches m_speedSpin's range
+        double speed = 1.0;    // PlaybackController::kMinSpeed … kMaxSpeed
         bool autoplay = false; // start playback as soon as a document is loaded
         QString initialFile;   // empty = don't open anything on startup
         // Empty family = leave the widget's default family alone; pointSize

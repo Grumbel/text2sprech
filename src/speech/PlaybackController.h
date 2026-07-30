@@ -29,6 +29,11 @@ class QAudioOutput;
 class PlaybackController : public QObject {
     Q_OBJECT
 public:
+    // Piper maps UI speed to length_scale = 1/speed; no hard upper bound in
+    // the backend — these are practical UI/config limits only.
+    static constexpr double kMinSpeed = 0.5;
+    static constexpr double kMaxSpeed = 5.0;
+
     explicit PlaybackController(PiperClient *client, QObject *parent = nullptr);
 
     void loadSentences(const QVector<Sentence> &sentences);
