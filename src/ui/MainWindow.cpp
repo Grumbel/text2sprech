@@ -75,6 +75,33 @@ int countWords(const QString &text)
     return text.split(whitespace, Qt::SkipEmptyParts).size();
 }
 
+// SI decimal byte size (base 1000): B, kB, MB, GB, …
+QString formatSiBytes(qint64 bytes)
+{
+    if (bytes < 0) {
+        bytes = 0;
+    }
+    if (bytes < 1000) {
+        return QStringLiteral("%1 B").arg(bytes);
+    }
+    static const char *const units[] = {"kB", "MB", "GB", "TB"};
+    double value = double(bytes);
+    int unit = -1;
+    while (value >= 1000.0 && unit < 3) {
+        value /= 1000.0;
+        ++unit;
+    }
+    // One decimal below 10 of the unit (e.g. 1.5 kB), whole numbers above.
+    if (value < 10.0) {
+        return QStringLiteral("%1 %2")
+            .arg(value, 0, 'f', 1)
+            .arg(QLatin1String(units[unit]));
+    }
+    return QStringLiteral("%1 %2")
+        .arg(value, 0, 'f', 0)
+        .arg(QLatin1String(units[unit]));
+}
+
 // QSlider's default groove click does a page-step on many styles (especially
 // under Linux), which feels broken for a media seek bar. Handle press/move/
 // release ourselves so a click jumps absolute and a drag keeps seeking.
@@ -1560,15 +1587,14 @@ void MainWindow::refreshDocumentStats()
     }
     const QString plain = m_documentView ? m_documentView->document()->toPlainText() : QString();
     const int words = countWords(plain);
-    const qsizetype bytes = plain.toUtf8().size();
-    // Compact right-side permanent status: "1,234 words · 5,678 bytes"
-    m_documentStatsLabel->setText(
-        tr("%1 words · %2 bytes")
-            .arg(words)
-            .arg(bytes));
+    const qint64 bytes = plain.toUtf8().size();
+    const QString sizeLabel = formatSiBytes(bytes);
+    // Compact right-side permanent status: "1234 words · 12 kB"
+    m_documentStatsLabel->setText(tr("%1 words · %2").arg(words).arg(sizeLabel));
     m_documentStatsLabel->setToolTip(
-        tr("%1 words, %2 UTF-8 bytes in the current document")
+        tr("%1 words, %2 (%3 UTF-8 bytes) in the current document")
             .arg(words)
+            .arg(sizeLabel)
             .arg(bytes));
 }
 
