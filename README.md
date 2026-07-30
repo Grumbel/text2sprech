@@ -6,7 +6,7 @@ sentence highlighting, play/pause/seek/prev/next, voice + speed selection.
 See `PROTOCOL.md` for the wire protocol between the Qt app and the Piper
 server.
 
-![text2sprech main window](docs/screenshot.png)
+![text2sprech main window](docs/screenshot-0.1.0.png)
 
 ## Status / what's actually been tested
 
