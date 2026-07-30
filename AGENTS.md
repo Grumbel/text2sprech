@@ -1,6 +1,10 @@
 # AGENTS.md — guidance for coding agents
 
-This file orients automated agents working on **text2sprech**. Prefer it over guessing from partial file views. User-facing detail and design history live in `README.md`; the wire format is authoritative in `PROTOCOL.md`.
+This file orients automated agents and human developers working on **text2sprech**. Prefer it over guessing from partial file views.
+
+- **Users:** [`README.md`](README.md) (features, install, usage, CLI, config).
+- **Wire protocol:** [`PROTOCOL.md`](PROTOCOL.md) (authoritative).
+- **This file:** layout, build, architecture rules, versioning, agent workflow.
 
 ## TODO.md and commits
 
@@ -37,7 +41,7 @@ text2sprech/
 ├── CMakeLists.txt          # Qt6 app + optional Qt Test target
 ├── flake.nix / flake.lock  # Nix packages, dev shell, optional bundled voice
 ├── PROTOCOL.md             # Client ↔ server message schema (source of truth)
-├── README.md               # Features, CLI, config, design notes
+├── README.md               # User-facing docs (features, install, usage)
 ├── TODO.md                 # Open product checklist (mark done when shipped)
 ├── REUSE.toml              # SPDX annotations for non-source assets
 ├── piper_server/           # Python server (tested without Qt)
@@ -108,11 +112,13 @@ Attach to an external server: `--piper-socket /path/to.sock` (app must **not** s
 ### Document / UI
 
 - Sentence offsets are on **`document()->toPlainText()`** after load (including HTML path). Highlighting and click-to-jump depend on this.
-- **C++ `SentenceSplitter` must stay behaviorally aligned** with `piper_server/sentence_splitter.py` (abbreviations, decimals, initials, newline boundaries, `max_len` subdivision, drop non-alnum-only junk). Prefer updating the Python reference and tests first, then port.
-- Drop punctuation/symbol-only segments before Piper (`hasSpeakableContent` / `_is_speakable`); Piper can crash on zero-phoneme WAV headers.
-- HTML goes through **`HtmlSanitizer::toSemanticHtml()`** before `DocumentView::loadHtml()` so author fonts/colors do not fight Preferences.
-- Highlights use **`QTextEdit::ExtraSelection` only**. Do not call `setTextCursor()` with a real selection for the active sentence — Qt paints native palette Highlight on top and breaks custom colors. Centering uses `cursorRect()` on a local cursor.
-- Arrow Left/Right for sentence nav are handled in **`DocumentView::keyPressEvent`**, not MainWindow `QAction` shortcuts (focus steals plain arrows).
+- **C++ `SentenceSplitter` must stay behaviorally aligned** with `piper_server/sentence_splitter.py` (abbreviations, decimals, initials, newline boundaries, `max_len` subdivision, drop non-alnum-only junk). Prefer updating the Python reference and tests first, then port. Splitter is heuristic, not a full NLP tokenizer; newlines are always hard boundaries.
+- Drop punctuation/symbol-only segments before Piper (`hasSpeakableContent` / `_is_speakable`); Piper can crash on zero-phoneme WAV headers. `PiperCliBackend` also degrades known empty-WAV crashes to short silence + log warning.
+- HTML goes through **`HtmlSanitizer::toSemanticHtml()`** before `DocumentView::loadHtml()` so author fonts/colors do not fight Preferences. Qt’s HTML subset is not a full browser.
+- Highlights use **`QTextEdit::ExtraSelection` only**. Do not call `setTextCursor()` with a real selection for the active sentence — Qt paints native palette Highlight on top and breaks custom colors. Centering uses `cursorRect()` on a local cursor (`centerCursor`); auto-scroll is optional in the UI.
+- Arrow Left/Right for sentence nav are handled in **`DocumentView::keyPressEvent`**, not MainWindow `QAction` shortcuts (focus steals plain arrows). Shared path: `MainWindow::jumpToSentence()` (also used by Find and click-to-jump).
+- **Space** play/pause is handled in a MainWindow `eventFilter` (not a fragile `QAction` shortcut) so toolbar focus does not swallow it; Find’s line edit still gets literal spaces.
+- Document font is a real **family + point size** (`DocumentView::setBaseFont` → `QTextDocument::setDefaultFont`), not relative zoom steps.
 - **Only `PreferencesDialog` writes** the startup config file (`~/.config/text2sprech/text2sprech.ini` via `QSettings` IniFormat). Toolbar and CLI are session overrides. Recent files and per-path positions use other groups (`recent`, `positions`).
 
 ### Synthesis backends (`synth.py`)
