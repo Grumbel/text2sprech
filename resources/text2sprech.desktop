@@ -5,6 +5,7 @@ Name=text2sprech
 GenericName=Text-to-Speech Reader
 Comment=Local text-to-speech reader with live sentence highlighting
 Exec=text2sprech %f
+TryExec=text2sprech
 Icon=text2sprech
 Terminal=false
 StartupNotify=true

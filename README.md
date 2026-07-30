@@ -199,9 +199,12 @@ text2sprech/
 ├── CMakeLists.txt
 ├── PROTOCOL.md              # wire protocol between text2sprech and piper-server
 ├── resources/
-│   ├── text2sprech.png       # app icon (512x512), embedded via qrc + installed to hicolor theme
-│   ├── text2sprech.qrc       # Qt resource file (AUTORCC) embedding the icon into the binary
-│   └── text2sprech.desktop   # Linux desktop entry (app menu, file-manager "Open With")
+│   ├── text2sprech.png                 # source app icon (512×512), also embedded via qrc
+│   ├── text2sprech.qrc                 # Qt resource (AUTORCC) — window icon without a theme
+│   ├── text2sprech.desktop             # main menu entry (+ Speak Clipboard action)
+│   ├── text2sprech-clipboard.desktop   # one-shot: clipboard + autoplay
+│   ├── text2sprech.metainfo.xml        # AppStream (Software centers)
+│   └── icons/text2sprech-{16…512}.png  # hicolor theme sizes
 ├── piper_server/
 │   ├── server.py            # asyncio unix-socket server
 │   ├── protocol.py           # framing (tested)

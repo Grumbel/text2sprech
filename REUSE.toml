@@ -10,17 +10,26 @@ path = [
     "flake.lock",
     "resources/text2sprech.desktop",
     "resources/text2sprech-clipboard.desktop",
+    "resources/text2sprech.metainfo.xml",
     "resources/text2sprech.qrc",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Ingo Ruhnke <grumbel@gmail.com>"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
-# Binary assets.
+# Binary assets (source icon + generated hicolor sizes).
 [[annotations]]
 path = [
     "docs/screenshot.png",
     "resources/text2sprech.png",
+    "resources/icons/text2sprech-16.png",
+    "resources/icons/text2sprech-24.png",
+    "resources/icons/text2sprech-32.png",
+    "resources/icons/text2sprech-48.png",
+    "resources/icons/text2sprech-64.png",
+    "resources/icons/text2sprech-128.png",
+    "resources/icons/text2sprech-256.png",
+    "resources/icons/text2sprech-512.png",
     "text2sprech.png",
 ]
 precedence = "aggregate"

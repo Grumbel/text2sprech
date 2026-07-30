@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Ingo Ruhnke <grumbel@gmail.com>
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<component type="desktop-application">
+  <id>text2sprech</id>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>text2sprech</name>
+  <summary>Local text-to-speech reader with live sentence highlighting</summary>
+  <description>
+    <p>
+      text2sprech is a local text-to-speech reader: open or paste text or HTML,
+      split it into sentences, and play it with Piper TTS while the current
+      sentence is highlighted. Synthesis stays on your machine — nothing is
+      sent to the cloud.
+    </p>
+    <p>
+      Features include play/pause, seek, previous/next sentence, adjustable
+      speed and voice, presentation mode, find, export to WAV, and a
+      “Speak Clipboard” launcher for one-shot reading of the clipboard.
+    </p>
+  </description>
+  <launchable type="desktop-id">text2sprech.desktop</launchable>
+  <launchable type="desktop-id">text2sprech-clipboard.desktop</launchable>
+  <url type="homepage">https://github.com/Grumbel/text2sprech</url>
+  <url type="bugtracker">https://github.com/Grumbel/text2sprech/issues</url>
+  <developer id="grumbel">
+    <name>Ingo Ruhnke</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+  <categories>
+    <category>Utility</category>
+    <category>Accessibility</category>
+    <category>AudioVideo</category>
+  </categories>
+  <keywords>
+    <keyword>tts</keyword>
+    <keyword>speech</keyword>
+    <keyword>accessibility</keyword>
+    <keyword>piper</keyword>
+    <keyword>audiobook</keyword>
+  </keywords>
+  <provides>
+    <binary>text2sprech</binary>
+  </provides>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
+  <!-- Version comes from packaging; releases can be filled at tag time. -->
+  <releases>
+    <release version="0.1.0" date="2026-07-30" type="development">
+      <description>
+        <p>Initial public development release candidate.</p>
+      </description>
+    </release>
+  </releases>
+</component>

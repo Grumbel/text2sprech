@@ -100,6 +100,18 @@
               "-DCMAKE_BUILD_TYPE=Release"
               "-DPROJECT_VERSION_FULL=${version}"
             ];
+            # cmake install phase already places bin/, share/applications/,
+            # share/icons/hicolor/, and share/metainfo/. Assert they landed so
+            # a missing install() rule fails the build instead of a silent
+            # package without a menu entry.
+            postInstall = ''
+              test -x "$out/bin/text2sprech"
+              test -f "$out/share/applications/text2sprech.desktop"
+              test -f "$out/share/applications/text2sprech-clipboard.desktop"
+              test -f "$out/share/metainfo/text2sprech.metainfo.xml"
+              test -f "$out/share/icons/hicolor/48x48/apps/text2sprech.png"
+              test -f "$out/share/icons/hicolor/512x512/apps/text2sprech.png"
+            '';
             qtWrapperArgs = [
               "--prefix" "PATH" ":" "${server}/bin"
             ] ++ lib.optionals withDefaultVoice [

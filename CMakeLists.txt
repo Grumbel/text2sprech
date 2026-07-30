@@ -78,10 +78,17 @@ install(FILES
     resources/text2sprech.desktop
     resources/text2sprech-clipboard.desktop
   DESTINATION share/applications)
-install(FILES resources/text2sprech.png
-    DESTINATION share/icons/hicolor/512x512/apps
-    RENAME text2sprech.png
-)
+
+install(FILES resources/text2sprech.metainfo.xml
+  DESTINATION share/metainfo)
+
+# hicolor icons at several sizes (generated from resources/text2sprech.png).
+# The 512px original is also embedded in the binary via text2sprech.qrc.
+foreach(_icon_size IN ITEMS 16 24 32 48 64 128 256 512)
+  install(FILES "resources/icons/text2sprech-${_icon_size}.png"
+    DESTINATION "share/icons/hicolor/${_icon_size}x${_icon_size}/apps"
+    RENAME text2sprech.png)
+endforeach()
 
 # --- Tests (optional, only built if Qt Test is found) ---
 find_package(Qt6 COMPONENTS Test QUIET)
