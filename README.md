@@ -133,6 +133,28 @@ text2sprech --paste-clipboard --autoplay
 cat chapter.txt | text2sprech --autoplay -
 ```
 
+## Following text as it arrives
+
+`tail2sprech` is a small command-line companion that speaks text as it is
+written, like `tail -f`, without opening the GUI. It starts its own
+piper-server, or uses a running one with `--piper-socket`.
+
+```bash
+tail2sprech app.log                   # speak new lines, survives log rotation
+tail2sprech -n 5 app.log              # start with the last 5 lines
+make 2>&1 | tail2sprech               # read stdin until it ends
+tail2sprech --voice en_US-amy-medium --speed 1.3 app.log
+tail2sprech --max-backlog 10 app.log  # skip old text rather than fall behind
+```
+
+Text is spoken in order, however far speech falls behind, unless
+`--max-backlog` is set. Sentences start as soon as they are known to be
+complete; a line without a newline is spoken after `--flush-after` seconds of
+silence (default 1). Audio plays through the first of `pw-play`, `paplay`,
+`aplay` or `ffplay` found, or the command given with `--player`. Voice and
+speed come from the options above, not from the GUI's configuration file. See
+`tail2sprech --help` for all options.
+
 ## Configuration file
 
 Defaults live in a plain INI file (Linux):

@@ -78,7 +78,16 @@ install(DIRECTORY piper_server/
     PATTERN "*.py"
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
+  PATTERN "tail2sprech.py"
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )
+
+# tail2sprech is a script living next to the modules it imports; Python
+# resolves the symlink when it sets up sys.path, so those imports still work.
+file(CREATE_LINK ../share/text2sprech/piper_server/tail2sprech.py
+  "${CMAKE_CURRENT_BINARY_DIR}/tail2sprech" SYMBOLIC)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/tail2sprech" DESTINATION bin)
 
 # Desktop integration: app menu entry + icon theme lookup. The icon is also
 # embedded into the binary itself via resources/text2sprech.qrc (AUTORCC)
@@ -130,4 +139,6 @@ if(Qt6Test_FOUND)
     target_include_directories(test_sentence_splitter PRIVATE src)
     target_link_libraries(test_sentence_splitter PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME test_sentence_splitter COMMAND test_sentence_splitter)
+    add_test(NAME test_tail2sprech
+        COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tail2sprech.py")
 endif()

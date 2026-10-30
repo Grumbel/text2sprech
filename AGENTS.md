@@ -47,6 +47,7 @@ text2sprech/
 ├── REUSE.toml              # SPDX annotations for non-source assets
 ├── piper_server/           # Python server (tested without Qt)
 │   ├── server.py           # asyncio Unix socket server
+│   ├── tail2sprech.py      # CLI: speak a growing file or pipe (`tail -f` style)
 │   ├── protocol.py         # 4-byte length + UTF-8 JSON framing
 │   ├── synth.py            # piper-python | piper-cli | silent-test backends
 │   └── sentence_splitter.py  # reference splitter (keep in sync with C++)
@@ -60,7 +61,7 @@ text2sprech/
 │   ├── text2sprech.metainfo.xml.in  # AppStream; version filled at configure
 │   ├── text2sprech.png / icons/text2sprech-*.png
 │   └── text2sprech.qrc
-└── tests/                  # test_sentence_splitter (Qt Test)
+└── tests/                  # test_sentence_splitter (Qt Test), test_tail2sprech.py
 ```
 
 Include paths are rooted at `src/` (`#include "ui/MainWindow.h"`, etc.).
@@ -91,6 +92,7 @@ Attach to an external server: `--piper-socket /path/to.sock` (app must **not** s
 **Tests:**
 
 - Python splitter / protocol / CLI crash degradation: exercise under `piper_server/` (no Qt required).
+- tail2sprech: `python3 tests/test_tail2sprech.py` (fake server and player; no Qt or Piper).
 - C++ splitter: build with Qt Test present, then `ctest` / `./build/test_sentence_splitter`.
 - Full GUI and C++ compile may be unavailable in minimal sandboxes; do not assume a green compile proves design correctness if the toolchain was never run.
 
@@ -121,6 +123,13 @@ Attach to an external server: `--piper-socket /path/to.sock` (app must **not** s
 - **Space** play/pause is handled in a MainWindow `eventFilter` (not a fragile `QAction` shortcut) so toolbar focus does not swallow it; Find’s line edit still gets literal spaces.
 - Document font is a real **family + point size** (`DocumentView::setBaseFont` → `QTextDocument::setDefaultFont`), not relative zoom steps.
 - **Only `PreferencesDialog` writes** the startup config file (`~/.config/text2sprech/text2sprech.ini` via `QSettings` IniFormat). Toolbar and CLI are session overrides. Recent files and per-path positions use other groups (`recent`, `positions`).
+
+### tail2sprech
+
+- Separate from the GUI on purpose: the GUI assumes a finished document (fixed offsets, resume positions, seek, export). Do not add follow mode to `DocumentView`/`PlaybackController` without revisiting that.
+- Input is always a byte stream from a child process (`tail -F` or `cat`). Rotation and truncation are `tail`'s job.
+- `SentenceStream` wraps `split_sentences()` and must stay independent of how input is chunked. The C++ splitter is not involved.
+- Same client rules as the GUI: no playback when `ready` reports `audio: false`, and never stop a `--piper-socket` server.
 
 ### Synthesis backends (`synth.py`)
 

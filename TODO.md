@@ -12,6 +12,10 @@ All original checklist items are done. Track post-release ideas here if needed.
 - [x] Auto-scroll toggle, margin controls
 - [x] Desktop integration (icons, AppStream, Speak Clipboard launcher)
 
+## Done (0.2)
+
+- [x] `tail2sprech`: speak text as it is appended to a file or pipe
+
 ## Maybe later
 
 - [ ] Single-instance / open files in an existing window (D-Bus)

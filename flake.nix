@@ -73,6 +73,10 @@
                   --set TEXT2SPRECH_PIPER_MODELS "${piper-voice-en_US-lessac-medium}/share/piper/voices" \
                   --add-flags "--default-voice ${piperVoiceName}"
                 ''}
+              # Spawn this package's own wrapper, so the bundled voice applies.
+              makeWrapper ${pythonEnv}/bin/python3 $out/bin/tail2sprech \
+                --add-flags "$out/share/piper-server/tail2sprech.py" \
+                --set TEXT2SPRECH_PIPER_SERVER_BIN "$out/bin/piper-server"
             '';
             meta = with lib; {
               description = "Unix-socket Piper TTS server for text2sprech"
@@ -105,6 +109,7 @@
             # a missing install() rule fails the build instead of a silent
             # package without a menu entry.
             postInstall = ''
+              ln -sf ${server}/bin/tail2sprech $out/bin/tail2sprech
               test -x "$out/bin/text2sprech"
               test -f "$out/share/applications/text2sprech.desktop"
               test -f "$out/share/applications/text2sprech-clipboard.desktop"
@@ -145,6 +150,7 @@
           text2sprech-lean = flake-utils.lib.mkApp { drv = text2sprech; exePath = "/bin/text2sprech"; };
           piper-server = flake-utils.lib.mkApp { drv = piper-server; exePath = "/bin/piper-server"; };
           piper-server-full = flake-utils.lib.mkApp { drv = piper-server-full; exePath = "/bin/piper-server"; };
+          tail2sprech = flake-utils.lib.mkApp { drv = piper-server-full; exePath = "/bin/tail2sprech"; };
           default = self.apps.${system}.text2sprech;
         };
 
